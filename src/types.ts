@@ -1,6 +1,6 @@
 export type WeatherType = 'sun' | 'rain' | 'neutral';
-export type ResourceType = 'food' | 'wood' | 'metal' | 'concrete' | 'sand';
-export type WorkerType = 'lumberjack' | 'welder' | 'fisherman' | 'cook' | 'driver' | 'engineer' | 'guard' | 'foreman' | 'head_chef' | 'miner';
+export type ResourceType = 'food' | 'wood' | 'metal' | 'concrete' | 'sand' | 'stone';
+export type WorkerType = 'lumberjack' | 'welder' | 'fisherman' | 'cook' | 'driver' | 'engineer' | 'guard' | 'foreman' | 'head_chef' | 'miner' | 'stonecutter' | 'hunter';
 
 export interface Generator {
     id: string;
@@ -15,6 +15,7 @@ export interface Generator {
     researchCost?: Partial<Record<ResourceType | 'balance', number>>; // New: Resource cost to unlock
     requiredTech?: string[]; // Existing: Building ID required to unlock this
     era: number; // New: 0 (Camp), 1 (Quarry), 2 (Industrial)
+    category: 'production' | 'residential' | 'utility' | 'market';
 }
 
 export interface Achievement {
@@ -44,6 +45,7 @@ export interface Building {
     level: number;
     targetCanteenId?: string; // New: For visual lines
     isMissingWorkers: boolean; // New: For UI feedback
+    isActive: boolean;
 }
 
 export interface GameState {
@@ -63,6 +65,7 @@ export interface GameState {
     constructionStage: number;
     achievements: string[];
     placingBuildingTypeId: string | null;
+    discoveredResources: ResourceType[];
 }
 
 export type GameAction =
@@ -82,6 +85,8 @@ export type GameAction =
     | { type: 'START_PLACEMENT'; typeId: string }
     | { type: 'PLACE_BUILDING'; x: number; y: number }
     | { type: 'MOVE_BUILDING'; id: string; x: number; y: number }
+    | { type: 'TOGGLE_BUILDING'; id: string }
+    | { type: 'FIRE_WORKER'; workerType: WorkerType }
     | { type: 'CANCEL_PLACEMENT' };
 
 export const CONSTRUCTION_STAGES = [

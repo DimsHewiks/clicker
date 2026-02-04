@@ -3,12 +3,12 @@ import { useGame } from '@/context/GameContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
-    Download, Upload, Trash2, Coins, TrendingUp, Apple,
+    Download, Upload, Trash2, Coins, Apple,
     Users, Hammer, Flame, Anchor, ChefHat, Zap, Shield,
-    ClipboardList, Pickaxe
+    ClipboardList, Pickaxe, Mountain, Bird
 } from 'lucide-react';
-import { ACHIEVEMENTS_CONFIG, WORKER_COSTS } from '@/constants';
-import type { WorkerType } from '@/types';
+import { ACHIEVEMENTS_CONFIG, WORKER_COSTS, GENERATORS_CONFIG } from '@/constants';
+import type { WorkerType, ResourceType } from '@/types';
 import { cn } from '@/lib/utils';
 
 const formatNumber = (num: number) => {
@@ -20,32 +20,53 @@ const formatNumber = (num: number) => {
 
 const workerNames: Record<WorkerType, string> = {
     lumberjack: "Лесоруб",
-    welder: "Сварщик",
+    stonecutter: "Каменотес",
+    hunter: "Охотник",
     fisherman: "Рыбак",
     cook: "Повар",
+    miner: "Минер/Шахтер",
     driver: "Водитель",
+    welder: "Сварщик",
     engineer: "Инженер",
     guard: "Охранник",
     foreman: "Прораб",
-    head_chef: "Шеф-повар",
-    miner: "Шахтер"
+    head_chef: "Шеф-повар"
 };
 
 const workerIcons: Record<WorkerType, React.ElementType> = {
     lumberjack: Hammer,
-    welder: Flame,
+    stonecutter: Pickaxe,
+    hunter: Bird,
     fisherman: Anchor,
     cook: ChefHat,
+    miner: Mountain,
     driver: Zap,
+    welder: Flame,
     engineer: Users,
     guard: Shield,
     foreman: ClipboardList,
-    head_chef: ChefHat,
-    miner: Pickaxe
+    head_chef: ChefHat
 };
 
+const resourcesList: { id: ResourceType; name: string; emoji: string; color: string }[] = [
+    { id: 'food', name: 'Еда', emoji: '🍱', color: 'orange-500' },
+    { id: 'wood', name: 'Дерево', emoji: '🪵', color: 'amber-700' },
+    { id: 'stone', name: 'Камень', emoji: '🪨', color: 'slate-500' },
+    { id: 'metal', name: 'Металл', emoji: '⛓️', color: 'blue-500' },
+    { id: 'sand', name: 'Песок', emoji: '⏳', color: 'yellow-600' },
+    { id: 'concrete', name: 'Бетон', emoji: '🧱', color: 'gray-400' },
+];
+
 export const LeftPanel: React.FC = () => {
-    const { state, incomePerSecond, workerCaps, resetGame, loadGame, hireWorker } = useGame();
+    const { state, incomePerSecond, resourceRates, workerCaps, resetGame, loadGame, hireWorker, fireWorker } = useGame();
+
+    const isWorkerUnlocked = (type: WorkerType) => {
+        return GENERATORS_CONFIG.some(g =>
+            state.unlockedTechs.includes(g.id) &&
+            g.workerReq &&
+            Object.keys(g.workerReq).includes(type)
+        );
+    };
 
     const handleExport = () => {
         const data = btoa(JSON.stringify(state));
@@ -66,36 +87,63 @@ export const LeftPanel: React.FC = () => {
     };
 
     const renderWorkerItem = (type: WorkerType) => {
+        if (!isWorkerUnlocked(type)) return null;
+
         const Icon = workerIcons[type];
         const cost = WORKER_COSTS[type];
         const count = state.workers[type] || 0;
-        const cap = (workerCaps as any)[type] || (workerCaps as any).default || Infinity;
-        const isCapped = count >= cap;
-        const canAfford = state.balance >= cost && !isCapped;
+        const refund = Math.floor(cost * 0.7);
+        const canAfford = state.balance >= cost && workerCaps.current < workerCaps.max;
 
         return (
-            <div key={type} className="flex items-center justify-between p-1.5 bg-secondary/20 rounded-md border border-transparent hover:border-primary/10 transition-all">
+            <div key={type} className="flex items-center justify-between p-1.5 bg-secondary/20 rounded-md border border-transparent hover:border-primary/10 transition-all group">
                 <div className="flex items-center gap-2">
                     <div className="p-1 bg-background rounded text-primary">
                         <Icon className="w-3 h-3" />
                     </div>
                     <div>
                         <div className="text-[11px] font-medium leading-none">{workerNames[type]}</div>
-                        <div className={cn("text-[9px] mt-0.5 font-bold", isCapped ? "text-orange-500" : "text-muted-foreground")}>
-                            {count}{cap !== Infinity ? ` / ${cap}` : ''}
+                        <div className="text-[9px] mt-0.5 font-bold text-muted-foreground">
+                            Кол-во: {count}
                         </div>
                     </div>
                 </div>
-                <Button
-                    size="sm"
-                    variant="ghost"
-                    className={cn("h-6 text-[10px] px-1.5", canAfford ? "text-primary" : "text-muted-foreground opacity-50")}
-                    onClick={() => hireWorker(type)}
-                    disabled={!canAfford}
-                >
-                    {isCapped ? "MAX" : formatNumber(cost)}
-                </Button>
+                <div className="flex items-center gap-1">
+                    {count > 0 && (
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                            onClick={() => fireWorker(type)}
+                            title={`Продать за ${refund} СК`}
+                        >
+                            <Trash2 className="w-3 h-3" />
+                        </Button>
+                    )}
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        className={cn("h-6 text-[10px] px-1.5", canAfford ? "text-primary" : "text-muted-foreground opacity-50")}
+                        onClick={() => hireWorker(type)}
+                        disabled={!canAfford}
+                    >
+                        {formatNumber(cost)}
+                    </Button>
+                </div>
             </div>
+        );
+    };
+
+    const renderResourceDelta = (rate: number) => {
+        if (Math.abs(rate) < 0.001) return null;
+        const isPos = rate > 0;
+        return (
+            <span className={cn(
+                "text-[9px] font-mono font-bold ml-auto",
+                isPos ? "text-green-500" : "text-red-500"
+            )}>
+                {isPos ? "+" : ""}{rate.toFixed(1)}/с
+            </span>
         );
     };
 
@@ -121,44 +169,47 @@ export const LeftPanel: React.FC = () => {
                         <Apple className="w-3 h-3" /> Ресурсы
                     </h3>
                     <div className="grid grid-cols-2 gap-2">
-                        <div className="bg-orange-500/10 p-2 rounded border border-orange-500/20">
-                            <div className="text-[10px] text-orange-400 uppercase font-bold">Еда</div>
-                            <div className="text-sm font-mono font-bold leading-none mt-1">{Math.floor(state.resources.food)}</div>
-                        </div>
-                        <div className="bg-amber-700/10 p-2 rounded border border-amber-700/20">
-                            <div className="text-[10px] text-amber-600 uppercase font-bold">Дерево</div>
-                            <div className="text-sm font-mono font-bold leading-none mt-1">{Math.floor(state.resources.wood)}</div>
-                        </div>
-                        <div className="bg-blue-500/10 p-2 rounded border border-blue-500/20">
-                            <div className="text-[10px] text-blue-400 uppercase font-bold">Металл</div>
-                            <div className="text-sm font-mono font-bold leading-none mt-1">{Math.floor(state.resources.metal)}</div>
-                        </div>
-                        <div className="bg-emerald-500/10 p-2 rounded border border-emerald-500/20">
-                            <div className="text-[10px] text-emerald-500 uppercase font-bold">Бетон</div>
-                            <div className="text-sm font-mono font-bold leading-none mt-1">{Math.floor(state.resources.concrete || 0)}</div>
-                        </div>
+                        {resourcesList.filter(r => state.discoveredResources.includes(r.id)).map(res => (
+                            <div key={res.id} className={cn(`bg-${res.color}/10 p-2 rounded border border-${res.color}/20 relative overflow-hidden`)}>
+                                <div className="flex justify-between items-start">
+                                    <div className={cn(`text-[10px] text-${res.color} uppercase font-bold`)}>{res.emoji} {res.name}</div>
+                                    {renderResourceDelta(resourceRates[res.id])}
+                                </div>
+                                <div className="text-sm font-mono font-bold leading-none mt-1">{Math.floor(state.resources[res.id] || 0)}</div>
+                            </div>
+                        ))}
                     </div>
                 </div>
 
                 {/* Workers / Staff Grouped */}
                 <div className="space-y-4">
-                    <h3 className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-2">
-                        <Users className="w-3 h-3" /> Персонал
-                    </h3>
-
-                    <div className="space-y-1">
-                        <div className="text-[9px] text-muted-foreground uppercase font-bold px-1 mb-1 opacity-50">Надзор и Охрана</div>
-                        {['guard', 'foreman', 'head_chef'].map(type => renderWorkerItem(type as WorkerType))}
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-2">
+                            <Users className="w-3 h-3" /> Персонал
+                        </h3>
+                        <div className={cn(
+                            "text-[10px] font-bold px-2 py-0.5 rounded-full border",
+                            workerCaps.current >= workerCaps.max ? "bg-red-500/10 border-red-500/20 text-red-500" : "bg-primary/10 border-primary/20 text-primary"
+                        )}>
+                            Слоты: {workerCaps.current} / {workerCaps.max}
+                        </div>
                     </div>
 
-                    <div className="space-y-1">
-                        <div className="text-[9px] text-muted-foreground uppercase font-bold px-1 mb-1 opacity-50">Производство</div>
-                        {['miner', 'lumberjack', 'welder', 'engineer'].map(type => renderWorkerItem(type as WorkerType))}
-                    </div>
+                    <div className="space-y-4">
+                        <div className="space-y-1">
+                            <div className="text-[9px] text-muted-foreground uppercase font-bold px-1 mb-1 opacity-50">Надзор и Охрана</div>
+                            {['guard', 'foreman', 'head_chef'].map(type => renderWorkerItem(type as WorkerType))}
+                        </div>
 
-                    <div className="space-y-1">
-                        <div className="text-[9px] text-muted-foreground uppercase font-bold px-1 mb-1 opacity-50">Сервис</div>
-                        {['cook', 'driver', 'fisherman'].map(type => renderWorkerItem(type as WorkerType))}
+                        <div className="space-y-1">
+                            <div className="text-[9px] text-muted-foreground uppercase font-bold px-1 mb-1 opacity-50">Производство</div>
+                            {['lumberjack', 'stonecutter', 'miner', 'welder', 'engineer'].map(type => renderWorkerItem(type as WorkerType))}
+                        </div>
+
+                        <div className="space-y-1">
+                            <div className="text-[9px] text-muted-foreground uppercase font-bold px-1 mb-1 opacity-50">Сервис</div>
+                            {['hunter', 'cook', 'fisherman', 'driver'].map(type => renderWorkerItem(type as WorkerType))}
+                        </div>
                     </div>
                 </div>
 
@@ -183,6 +234,49 @@ export const LeftPanel: React.FC = () => {
                     </div>
                 </div>
 
+                {/* Building Statistics */}
+                <div className="pt-4 border-t border-white/5 space-y-2">
+                    <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                        <Hammer className="w-3 h-3" /> Статистика Объектов
+                    </h3>
+                    <div className="space-y-1">
+                        {GENERATORS_CONFIG.filter(g => (state.generators[g.id] || 0) > 0).map(gen => {
+                            const count = state.generators[gen.id] || 0;
+                            const buildingInstances = state.buildings.filter(b => b.typeId === gen.id && b.isActive && b.status !== 'lunch');
+
+                            // Calculate total output including synergy (rough estimation for UI)
+                            // We can just rely on the rates from context if possible, but stats are per-building.
+                            return (
+                                <div key={gen.id} className="flex flex-col p-2 bg-secondary/10 rounded border border-white/5">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <div className="text-[10px] font-bold flex items-center gap-1.5">
+                                            <gen.icon className="w-3 h-3 text-primary" />
+                                            {gen.name}
+                                        </div>
+                                        <div className="text-[10px] font-mono font-bold bg-primary/20 px-1.5 rounded">x{count}</div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 opacity-80">
+                                        {gen.baseIncome > 0 && (
+                                            <div className="text-[9px] text-green-500 font-bold">+{formatNumber(gen.baseIncome * count)} СК/с</div>
+                                        )}
+                                        {gen.produces && Object.entries(gen.produces).map(([res, val]) => (
+                                            <div key={res} className="text-[9px] text-blue-400 font-bold">+{formatNumber(val * count)} {res}/с</div>
+                                        ))}
+                                        {gen.consumes && Object.entries(gen.consumes).map(([res, val]) => (
+                                            <div key={res} className="text-[9px] text-red-500 font-bold">-{formatNumber(val * count)} {res}/с</div>
+                                        ))}
+                                    </div>
+                                    {buildingInstances.length > 0 && (
+                                        <div className="mt-1 text-[8px] text-muted-foreground italic">
+                                            Активно: {buildingInstances.length} / {count}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
                 {/* Actions */}
                 <div className="pt-4 space-y-2">
                     <div className="grid grid-cols-2 gap-2">
@@ -194,7 +288,7 @@ export const LeftPanel: React.FC = () => {
                         </Button>
                     </div>
                     <Button variant="ghost" size="sm" className="w-full h-7 gap-1.5 text-[9px] uppercase font-bold text-destructive hover:text-white hover:bg-destructive transition-all" onClick={() => {
-                        if (confirm("Reset ALL progress?")) resetGame();
+                        resetGame();
                     }}>
                         <Trash2 className="w-3 h-3" /> Reset Data
                     </Button>

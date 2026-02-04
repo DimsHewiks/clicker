@@ -1,23 +1,25 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useGame } from '@/context/GameContext';
 import { formatNumber } from '@/lib/utils';
 import { GENERATORS_CONFIG, ERAS } from '@/constants';
-import type { ResourceType } from '@/types';
+import type { ResourceType, Generator } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Lock, FlaskConical, CheckCircle2 } from 'lucide-react';
+import { Lock, FlaskConical, CheckCircle2, Hammer, Banknote, Tent } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+type TabType = 'production' | 'market' | 'residential';
 
 export const GeneratorsPanel: React.FC = () => {
     const { state, buyGenerator, researchTech } = useGame();
+    const [activeTab, setActiveTab] = useState<TabType>('production');
 
     // Calculate era mastery
     const eraStatus = useMemo(() => {
         return ERAS.map(era => {
             const eraItems = GENERATORS_CONFIG.filter(g => g.era === era.id);
             const allResearched = eraItems.every(g => state.unlockedTechs.includes(g.id));
-            // "all built" means at least one of each generator in the era is built
             const allBuilt = eraItems.every(g => (state.generators[g.id] || 0) > 0);
             return {
                 id: era.id,
@@ -27,8 +29,15 @@ export const GeneratorsPanel: React.FC = () => {
         });
     }, [state.unlockedTechs, state.generators]);
 
-    const renderResearchItem = (gen: any, isEraLocked: boolean) => {
+    const tabs: { id: TabType; name: string; icon: React.ElementType }[] = [
+        { id: 'production', name: 'Добыча', icon: Hammer },
+        { id: 'market', name: 'Продажа', icon: Banknote },
+        { id: 'residential', name: 'Заселение', icon: Tent }
+    ];
+
+    const renderResearchItem = (gen: Generator, isEraLocked: boolean) => {
         const costs = gen.researchCost || {};
+        const Icon = gen.icon;
         const canAfford = Object.entries(costs).every(([res, amount]) => {
             if (res === 'balance') return state.balance >= (amount as number);
             return (state.resources[res as ResourceType] || 0) >= (amount as number);
@@ -40,7 +49,7 @@ export const GeneratorsPanel: React.FC = () => {
             return (
                 <div key={gen.id} className="p-3 border rounded-lg bg-card/30 opacity-40 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-muted rounded-md"><gen.icon className="h-4 w-4" /></div>
+                        <div className="p-2 bg-muted rounded-md"><Icon className="h-4 w-4" /></div>
                         <div className="text-[9px] font-black text-muted-foreground uppercase">Предыдущая эпоха не завершена</div>
                     </div>
                     <Lock className="w-3 h-3 text-muted-foreground" />
@@ -52,7 +61,7 @@ export const GeneratorsPanel: React.FC = () => {
             return (
                 <div key={gen.id} className="p-3 border rounded-lg bg-card/50 opacity-60 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-muted rounded-md"><gen.icon className="h-4 w-4" /></div>
+                        <div className="p-2 bg-muted rounded-md"><Icon className="h-4 w-4" /></div>
                         <div>
                             <div className="text-[10px] font-bold uppercase">{gen.name}</div>
                             <div className="text-[8px] text-destructive font-black">НУЖНО: {gen.requiredTech?.[0]}</div>
@@ -68,7 +77,7 @@ export const GeneratorsPanel: React.FC = () => {
                 <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-blue-500/20 rounded-md text-blue-400">
-                            <gen.icon className="h-5 w-5" />
+                            <Icon className="h-5 w-5" />
                         </div>
                         <div>
                             <h4 className="font-bold text-xs">{gen.name}</h4>
@@ -100,10 +109,32 @@ export const GeneratorsPanel: React.FC = () => {
             <CardHeader className="py-3 px-4 border-b bg-card/50">
                 <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Дерево Технологий</CardTitle>
             </CardHeader>
+            <div className="flex p-2 bg-muted/30 border-b gap-1">
+                {tabs.map(tab => {
+                    const Icon = tab.icon;
+                    return (
+                        <Button
+                            key={tab.id}
+                            variant={activeTab === tab.id ? "default" : "ghost"}
+                            size="sm"
+                            className={cn(
+                                "flex-1 h-8 text-[9px] gap-1.5 uppercase font-bold",
+                                activeTab === tab.id ? "bg-primary shadow-lg shadow-primary/20" : "text-muted-foreground"
+                            )}
+                            onClick={() => setActiveTab(tab.id)}
+                        >
+                            <Icon className="w-3 h-3" /> {tab.name}
+                        </Button>
+                    );
+                })}
+            </div>
             <CardContent className="flex-1 overflow-y-auto p-4 space-y-8">
                 {ERAS.map((era, index) => {
                     const status = eraStatus[index];
                     const isEraLocked = index > 0 && !eraStatus[index - 1].isMastered;
+                    const eraGens = GENERATORS_CONFIG.filter(g => g.era === era.id && g.category === activeTab);
+
+                    if (eraGens.length === 0) return null;
 
                     return (
                         <div key={era.id} className="space-y-4">
@@ -122,7 +153,7 @@ export const GeneratorsPanel: React.FC = () => {
                             </div>
 
                             <div className="space-y-2">
-                                {GENERATORS_CONFIG.filter(g => g.era === era.id).map((gen) => {
+                                {eraGens.map((gen) => {
                                     const isUnlocked = state.unlockedTechs.includes(gen.id);
                                     if (!isUnlocked) return renderResearchItem(gen, isEraLocked);
 
@@ -146,9 +177,21 @@ export const GeneratorsPanel: React.FC = () => {
                                                     <div>
                                                         <h4 className="font-bold text-sm tracking-tight">{gen.name}</h4>
                                                         <div className="text-[10px] text-muted-foreground flex flex-col gap-0.5 mt-1">
-                                                            {gen.baseIncome > 0 && <span>Доход: +{formatNumber(gen.baseIncome)}/с</span>}
-                                                            {gen.produces?.wood && <span>Дерево: +{formatNumber(gen.produces.wood)}/с</span>}
-                                                            {gen.produces?.metal && <span>Металл: +{formatNumber(gen.produces.metal)}/с</span>}
+                                                            {gen.category === 'market' && gen.consumes ? (
+                                                                <div className="flex items-center gap-1.5 text-blue-400 font-bold">
+                                                                    <span>-{Object.values(gen.consumes)[0]} {Object.keys(gen.consumes)[0]}</span>
+                                                                    <span>→</span>
+                                                                    <span className="text-green-500">+{formatNumber(gen.baseIncome)} СК</span>
+                                                                </div>
+                                                            ) : (
+                                                                <>
+                                                                    {gen.baseIncome > 0 && <span>Доход: +{formatNumber(gen.baseIncome)}/с</span>}
+                                                                    {gen.produces?.wood && <span>Дерево: +{formatNumber(gen.produces.wood)}/с</span>}
+                                                                    {gen.produces?.metal && <span>Металл: +{formatNumber(gen.produces.metal)}/с</span>}
+                                                                    {gen.produces?.food && <span>Еда: +{formatNumber(gen.produces.food)}/с</span>}
+                                                                    {gen.produces?.stone && <span>Камень: +{formatNumber(gen.produces.stone)}/с</span>}
+                                                                </>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>

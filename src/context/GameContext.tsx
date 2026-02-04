@@ -1,16 +1,18 @@
 import React, { createContext, useContext, useEffect, useReducer, useRef, useMemo } from 'react';
-import { type GameState, type GameAction, type WeatherType, CONSTRUCTION_STAGES, type WorkerType, type ResourceType, type Building, type Contract } from '../types';
+import { type GameState, type GameAction, type WeatherType, type WorkerType, type ResourceType, type Building } from '../types';
 import {
-    GENERATORS_CONFIG, INITIAL_STATE, SHIFT_DURATION, SHIFT_COOLDOWN,
-    WEATHER_MODIFIERS, SHIFT_MULTIPLIER, ACHIEVEMENTS_CONFIG,
-    FOOD_CONSUMPTION_RATE, WORKER_COSTS, LUNCH_INTERVAL, WALK_SPEED
+    GENERATORS_CONFIG, INITIAL_STATE, SHIFT_COOLDOWN,
+    WEATHER_MODIFIERS, SHIFT_MULTIPLIER,
+    FOOD_CONSUMPTION_RATE, WORKER_COSTS, LUNCH_INTERVAL, WALK_SPEED, SHIFT_DURATION,
+    SYNERGY_CONFIG
 } from '../constants';
 import { soundManager } from '../lib/sound';
 
 const GameContext = createContext<{
     state: GameState;
     incomePerSecond: number;
-    workerCaps: Record<string, number>;
+    resourceRates: Record<ResourceType, number>;
+    workerCaps: { current: number; max: number };
     click: () => void;
     buyGenerator: (id: string) => void;
     researchTech: (id: string) => void;
@@ -19,14 +21,17 @@ const GameContext = createContext<{
     startPlacement: (typeId: string) => void;
     placeBuilding: (x: number, y: number) => void;
     moveBuilding: (id: string, x: number, y: number) => void;
+    toggleBuilding: (id: string) => void;
     cancelPlacement: () => void;
     hireWorker: (type: WorkerType) => void;
+    fireWorker: (type: WorkerType) => void;
+    activateShift: () => void;
+    setWeather: (weather: WeatherType) => void;
     resetGame: () => void;
     loadGame: (state: GameState) => void;
     emitJuice: (x: number, y: number, text: string) => void;
 } | null>(null);
 
-// Event emitter replacement for juice
 const juiceListeners: ((x: number, y: number, text: string) => void)[] = [];
 
 function gameReducer(state: GameState, action: GameAction): GameState {
@@ -96,6 +101,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                     x: action.x,
                     y: action.y,
                     isPlaced: true,
+                    isActive: true,
                     status: 'working',
                     lunchTimer: LUNCH_INTERVAL + Math.random() * 20,
                     level: 1,
@@ -114,6 +120,12 @@ function gameReducer(state: GameState, action: GameAction): GameState {
             return { ...state, placingBuildingTypeId: null };
         }
 
+        case 'TOGGLE_BUILDING':
+            return {
+                ...state,
+                buildings: state.buildings.map(b => b.id === action.id ? { ...b, isActive: !b.isActive } : b)
+            };
+
         case 'UPGRADE_BUILDING': {
             const bld = state.buildings.find(b => b.id === action.buildingId);
             if (!bld || bld.level >= 5) return state;
@@ -121,7 +133,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
             const config = GENERATORS_CONFIG.find(g => g.id === bld.typeId);
             if (!config) return state;
 
-            const upgradeMultiplier = Math.pow(2, bld.level); // Level 1->2 costs 2x, 2->3 costs 4x...
+            const upgradeMultiplier = Math.pow(2, bld.level);
             const scCost = Math.floor(config.baseCost * upgradeMultiplier);
             const resReqs = config.resRequirements;
 
@@ -184,14 +196,14 @@ function gameReducer(state: GameState, action: GameAction): GameState {
             const { dt } = action;
             let nRes = { ...state.resources };
             let nWrk = { ...state.workers };
-            const tWrk = Object.values(state.workers).reduce((a, b) => a + b, 0);
+            let nDiscovered = [...state.discoveredResources];
+            const tWrk = Object.values(state.workers).reduce((a, b) => a + (b || 0), 0);
 
             nRes.food -= tWrk * FOOD_CONSUMPTION_RATE * dt;
+            const isStarving = nRes.food <= 0;
+            if (nRes.food < 0) { nRes.food = 0; }
 
-            // ... (preserving starvation/escape logic simplified for brevity but it's there)
-            if (nRes.food < 0) { nRes.food = 0; /* handle starvation */ }
-
-            // Production Demand & Efficiency
+            // Efficiency
             const wDmd: Record<string, number> = {};
             GENERATORS_CONFIG.forEach(gen => {
                 const count = state.generators[gen.id] || 0;
@@ -206,26 +218,35 @@ function gameReducer(state: GameState, action: GameAction): GameState {
             (Object.keys(nWrk) as WorkerType[]).forEach(wType => {
                 const needed = wDmd[wType] || 0;
                 const avail = nWrk[wType] || 0;
-                wEff[wType] = needed > 0 ? Math.min(1, avail / needed) : 1;
+                if (needed > 0) {
+                    const slotted = Math.min(avail, needed);
+                    const extra = Math.max(0, avail - needed);
+                    wEff[wType] = (slotted + extra * 0.2) / needed;
+                } else {
+                    wEff[wType] = 1;
+                }
             });
 
-            const emojiMap: Record<string, string> = { food: '🍱', wood: '🪵', metal: '⛓️', concrete: '🧱', sand: '⏳' };
-            const canteens = state.buildings.filter(b => b.typeId === 'canteen' && b.isPlaced);
+            const canteens = state.buildings.filter(b => b.typeId === 'canteen' && b.isPlaced && b.isActive);
 
             const blds = state.buildings.map(b => {
+                const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
                 let s = b.status;
                 let t = b.lunchTimer - dt;
                 let targetCanteenId = b.targetCanteenId;
                 let isMissingWorkers = false;
 
-                const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
                 if (config?.workerReq) {
-                    const eff = Math.min(...Object.keys(config.workerReq).map(wType => wEff[wType] ?? 1));
+                    const eff = Math.min(...Object.keys(config.workerReq).map(wType => wEff[wType] ?? 0));
                     isMissingWorkers = eff < 1;
                 }
 
-                if (s === 'working' && t <= 0) {
-                    s = 'lunch';
+                if (config?.category === 'residential') {
+                    return { ...b, status: 'working' as const, lunchTimer: LUNCH_INTERVAL, isMissingWorkers: false };
+                }
+
+                if (s === 'working' && t <= 0 && b.isActive) {
+                    s = 'lunch' as const;
                     const nearestCanteen = canteens.length > 0
                         ? canteens.reduce((prev, curr) => {
                             const d1 = Math.sqrt(Math.pow(curr.x - b.x, 2) + Math.pow(curr.y - b.y, 2));
@@ -238,29 +259,70 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                     const dist = nearestCanteen ? Math.sqrt(Math.pow(nearestCanteen.x - b.x, 2) + Math.pow(nearestCanteen.y - b.y, 2)) : 800;
                     t = Math.max(5, (dist / WALK_SPEED) * 2);
                 } else if (s === 'lunch' && t <= 0) {
-                    s = 'working';
+                    s = 'working' as const;
                     t = LUNCH_INTERVAL;
                     targetCanteenId = undefined;
                 }
-                return { ...b, status: s, lunchTimer: t, targetCanteenId, isMissingWorkers };
+                return { ...b, status: s as any, lunchTimer: t, targetCanteenId, isMissingWorkers };
             });
 
             let incomeTotal = 0;
             const foremanMul = 1 + (state.workers.foreman || 0) * 0.2;
+            const weatherMul = WEATHER_MODIFIERS[state.weather] || 1.0;
+            const shiftMul = state.shiftActive ? SHIFT_MULTIPLIER : 1.0;
 
             blds.forEach(b => {
                 const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
-                if (!config || b.status === 'lunch' || !b.isPlaced) return;
+                if (!config || b.status === 'lunch' || !b.isPlaced || !b.isActive) return;
+
+                // --- SYNERGY CALCULATION ---
+                let clusterBonus = 0;
+                let chainBonus = 0;
+                let resBonus = 0;
+
+                state.buildings.forEach(other => {
+                    if (other.id === b.id || !other.isActive) return;
+                    const dist = Math.sqrt(Math.pow(other.x - b.x, 2) + Math.pow(other.y - b.y, 2));
+
+                    // Cluster
+                    if (other.typeId === b.typeId && dist < SYNERGY_CONFIG.CLUSTER_RADIUS) {
+                        clusterBonus += SYNERGY_CONFIG.BONUSES.CLUSTER_PER_BUILDING;
+                    }
+
+                    // Chain
+                    const chain = SYNERGY_CONFIG.CHAINS.find(c => c.target === b.typeId && c.source === other.typeId);
+                    if (chain && dist < SYNERGY_CONFIG.CHAIN_RADIUS) {
+                        chainBonus += SYNERGY_CONFIG.BONUSES.CHAIN_PROCESSOR;
+                    }
+
+                    // Residential
+                    if (other.typeId === 'house' && dist < SYNERGY_CONFIG.RESIDENTIAL_RADIUS) {
+                        if (config.category === 'market') resBonus += SYNERGY_CONFIG.BONUSES.MARKET_PER_HOUSE;
+                        if (b.typeId === 'canteen') resBonus += SYNERGY_CONFIG.BONUSES.CANTEEN_PER_HOUSE;
+                    }
+                });
 
                 let eff = 1.0;
                 if (config.workerReq) {
-                    Object.keys(config.workerReq).forEach(wType => {
-                        eff = Math.min(eff, wEff[wType] ?? 1);
-                    });
+                    const reqTypes = Object.keys(config.workerReq) as WorkerType[];
+                    eff = Math.min(...reqTypes.map(wType => wEff[wType] ?? 0));
+                }
+
+                if (isStarving && config.category !== 'residential') {
+                    eff = 0;
+                }
+
+                if (config.consumes && eff > 0) {
+                    const canConsume = Object.entries(config.consumes).every(([res, val]) => (nRes[res as ResourceType] || 0) >= val * dt);
+                    if (!canConsume) {
+                        eff = 0;
+                    } else {
+                        Object.entries(config.consumes).forEach(([res, val]) => nRes[res as ResourceType] -= val * dt);
+                    }
                 }
 
                 const upgradeBonus = 1 + (b.level - 1) * 0.5;
-                const totalBoost = eff * upgradeBonus * foremanMul;
+                const totalBoost = eff * (1 + clusterBonus + chainBonus + resBonus) * upgradeBonus * foremanMul * weatherMul * shiftMul;
 
                 incomeTotal += config.baseIncome * totalBoost * dt;
 
@@ -268,25 +330,46 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                     Object.entries(config.produces).forEach(([rType, val]) => {
                         const amount = val * totalBoost * dt;
                         nRes[rType as ResourceType] += amount;
-                        if (Math.random() < 0.05) {
-                            const emoji = emojiMap[rType] || rType;
-                            juiceListeners.forEach(l => l(b.x, b.y, `+1 ${emoji}`));
-                        }
+                        if (!nDiscovered.includes(rType as ResourceType)) nDiscovered.push(rType as ResourceType);
                     });
                 }
             });
 
-            // Timers & Contracts
             const newContracts = [...state.activeContracts];
-            if (state.activeContracts.length < 3 && Math.random() < 0.001) { // Rare contract gen
-                const rType = (['wood', 'metal', 'food'] as ResourceType[])[Math.floor(Math.random() * 3)];
+            if (state.activeContracts.length < 3 && Math.random() < (0.001 * dt * 10)) {
+                // Era-appropriate resources
+                const possibleRes: ResourceType[] = ['wood', 'food'];
+                if (state.discoveredResources.includes('stone')) possibleRes.push('stone');
+                if (state.discoveredResources.includes('metal')) possibleRes.push('metal');
+                if (state.discoveredResources.includes('sand')) possibleRes.push('sand');
+                if (state.discoveredResources.includes('concrete')) possibleRes.push('concrete');
+
+                const rType = possibleRes[Math.floor(Math.random() * possibleRes.length)];
+                const reqAmount = 100 + Math.floor(Math.random() * 9) * 100; // 100 to 900
                 newContracts.push({
                     id: Math.random().toString(36).substr(2, 9),
                     title: `Экспорт: ${rType}`,
-                    description: `Нужно ${500} ед. для партнера.`,
-                    requirement: { type: rType, amount: 500 },
-                    reward: { type: 'balance', amount: 5000 }
+                    description: `Нужно ${reqAmount} ед. для партнера.`,
+                    requirement: { type: rType, amount: reqAmount },
+                    reward: { type: 'balance', amount: reqAmount * 10 }
                 });
+            }
+
+            let nWeather = state.weather;
+            let nWeatherTimer = state.weatherTimer - dt;
+            if (nWeatherTimer <= 0) {
+                const weathers: WeatherType[] = ['sun', 'rain', 'neutral'];
+                nWeather = weathers[Math.floor(Math.random() * weathers.length)];
+                nWeatherTimer = 60 + Math.random() * 60;
+            }
+
+            let nShiftActive = state.shiftActive;
+            let nShiftTimer = state.shiftTimer - dt;
+            if (nShiftActive && nShiftTimer <= 0) {
+                nShiftActive = false;
+                nShiftTimer = SHIFT_COOLDOWN;
+            } else if (!nShiftActive && nShiftTimer < 0) {
+                nShiftTimer = 0;
             }
 
             return {
@@ -295,17 +378,57 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 resources: nRes,
                 workers: nWrk,
                 buildings: blds,
+                discoveredResources: nDiscovered,
                 activeContracts: newContracts,
-                weatherTimer: state.weatherTimer - dt,
-                shiftTimer: state.shiftTimer - dt,
+                weather: nWeather,
+                weatherTimer: nWeatherTimer,
+                shiftActive: nShiftActive,
+                shiftTimer: nShiftTimer,
                 lastSaveTime: Date.now()
             };
         }
+
+        case 'ACTIVATE_SHIFT':
+            if (state.shiftActive || (state.shiftTimer || 0) > 0) return state;
+            return {
+                ...state,
+                shiftActive: true,
+                shiftTimer: SHIFT_DURATION
+            };
+
+        case 'END_SHIFT':
+            return {
+                ...state,
+                shiftActive: false,
+                shiftTimer: SHIFT_COOLDOWN
+            };
+
+        case 'SET_WEATHER':
+            return {
+                ...state,
+                weather: action.weather,
+                weatherTimer: 60
+            };
+
+        case 'UNLOCK_ACHIEVEMENT':
+            if (state.achievements.includes(action.id)) return state;
+            return {
+                ...state,
+                achievements: [...state.achievements, action.id]
+            };
 
         case 'LOAD_GAME': return { ...state, ...action.state };
         case 'RESET_GAME': return INITIAL_STATE as GameState;
         case 'MOVE_BUILDING': return { ...state, buildings: state.buildings.map(b => b.id === action.id ? { ...b, x: action.x, y: action.y } : b) };
         case 'HIRE_WORKER': return { ...state, balance: state.balance - action.cost, workers: { ...state.workers, [action.workerType]: (state.workers[action.workerType] || 0) + 1 } };
+        case 'FIRE_WORKER':
+            if ((state.workers[action.workerType] || 0) <= 0) return state;
+            const refund = Math.floor(WORKER_COSTS[action.workerType] * 0.7);
+            return {
+                ...state,
+                balance: state.balance + refund,
+                workers: { ...state.workers, [action.workerType]: state.workers[action.workerType] - 1 }
+            };
         default: return state;
     }
 }
@@ -314,15 +437,110 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [state, dispatch] = useReducer(gameReducer, INITIAL_STATE as GameState);
     const lastTickRef = useRef<number>(Date.now());
 
-    const workerCaps = useMemo(() => ({
-        lumberjack: 5 + (state.generators.house || 0) * 5,
-        default: Infinity
-    }), [state.generators.house]);
+    const { incomePerSecond, resourceRates } = useMemo(() => {
+        const wDmd: Record<string, number> = {};
+        GENERATORS_CONFIG.forEach(gen => {
+            const count = state.generators[gen.id] || 0;
+            if (count > 0 && gen.workerReq) {
+                Object.entries(gen.workerReq).forEach(([wType, wNeeded]) => {
+                    wDmd[wType] = (wDmd[wType] || 0) + (wNeeded * count);
+                });
+            }
+        });
+
+        const wEff: Record<string, number> = {};
+        (Object.keys(state.workers) as WorkerType[]).forEach(wType => {
+            const needed = wDmd[wType] || 0;
+            const avail = state.workers[wType] || 0;
+            if (needed > 0) {
+                const slotted = Math.min(avail, needed);
+                const extra = Math.max(0, avail - needed);
+                wEff[wType] = (slotted + extra * 0.2) / needed;
+            } else {
+                wEff[wType] = 1;
+            }
+        });
+
+        let incomeTotal = 0;
+        const resRates: Record<ResourceType, number> = { food: 0, wood: 0, metal: 0, concrete: 0, sand: 0, stone: 0 };
+        const tWrk = Object.values(state.workers).reduce((a, b) => a + (b || 0), 0);
+        resRates.food -= tWrk * FOOD_CONSUMPTION_RATE;
+
+        const foremanMul = 1 + (state.workers.foreman || 0) * 0.2;
+        const weatherMul = WEATHER_MODIFIERS[state.weather] || 1.0;
+        const shiftMul = state.shiftActive ? SHIFT_MULTIPLIER : 1.0;
+
+        state.buildings.forEach(b => {
+            const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
+            if (!config || b.status === 'lunch' || !b.isPlaced || !b.isActive) return;
+
+            // --- SYNERGY CALCULATION IN MEMO ---
+            let clusterBonus = 0;
+            let chainBonus = 0;
+            let resBonus = 0;
+
+            state.buildings.forEach(other => {
+                if (other.id === b.id || !other.isActive) return;
+                const dist = Math.sqrt(Math.pow(other.x - b.x, 2) + Math.pow(other.y - b.y, 2));
+
+                if (other.typeId === b.typeId && dist < SYNERGY_CONFIG.CLUSTER_RADIUS) {
+                    clusterBonus += SYNERGY_CONFIG.BONUSES.CLUSTER_PER_BUILDING;
+                }
+
+                const chain = SYNERGY_CONFIG.CHAINS.find(c => c.target === b.typeId && c.source === other.typeId);
+                if (chain && dist < SYNERGY_CONFIG.CHAIN_RADIUS) {
+                    chainBonus += SYNERGY_CONFIG.BONUSES.CHAIN_PROCESSOR;
+                }
+
+                if (other.typeId === 'house' && dist < SYNERGY_CONFIG.RESIDENTIAL_RADIUS) {
+                    if (config.category === 'market') resBonus += SYNERGY_CONFIG.BONUSES.MARKET_PER_HOUSE;
+                    if (b.typeId === 'canteen') resBonus += SYNERGY_CONFIG.BONUSES.CANTEEN_PER_HOUSE;
+                }
+            });
+
+            let eff = 1.0;
+            if (config.workerReq) {
+                const reqTypes = Object.keys(config.workerReq) as WorkerType[];
+                eff = Math.min(...reqTypes.map(wType => wEff[wType] ?? 0));
+            }
+
+            if (config.consumes) {
+                const canConsume = Object.entries(config.consumes).every(([res]) => (state.resources[res as ResourceType] || 0) > 0);
+                if (!canConsume) eff = 0;
+            }
+
+            const upgradeBonus = 1 + (b.level - 1) * 0.5;
+            const totalBoost = eff * (1 + clusterBonus + chainBonus + resBonus) * upgradeBonus * foremanMul * weatherMul * shiftMul;
+
+            incomeTotal += config.baseIncome * totalBoost;
+
+            if (config.produces && eff > 0) {
+                Object.entries(config.produces).forEach(([rType, val]) => {
+                    resRates[rType as ResourceType] += val * totalBoost;
+                });
+            }
+
+            if (config.consumes && eff > 0) {
+                Object.entries(config.consumes).forEach(([rType, val]) => {
+                    resRates[rType as ResourceType] -= val * totalBoost;
+                });
+            }
+        });
+
+        return { incomePerSecond: incomeTotal, resourceRates: resRates };
+    }, [state]);
+
+    const workerCaps = useMemo(() => {
+        const total = Object.values(state.workers || {}).reduce((a, b) => a + (b || 0), 0);
+        const houseCount = state.generators?.house || 0;
+        const max = 5 + (houseCount * 5);
+        return { current: total, max };
+    }, [state.workers, state.generators]);
 
     useEffect(() => {
         const saved = localStorage.getItem('story-imperia-save');
         if (saved) {
-            try { dispatch({ type: 'LOAD_GAME', state: { ...INITIAL_STATE, ...JSON.parse(saved) } }); }
+            try { dispatch({ type: 'LOAD_GAME', state: { ...INITIAL_STATE, ...JSON.parse(saved) } } as any); }
             catch (e) { console.error("Load failed", e); }
         }
     }, []);
@@ -349,27 +567,43 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return (
         <GameContext.Provider value={{
-            state,
-            incomePerSecond: 0, // Simplified or derived
-            workerCaps,
-            click: () => dispatch({ type: 'CLICK', amount: state.constructionStage + 1 }),
+            state, incomePerSecond, resourceRates, workerCaps,
+            click: () => {
+                const amount = state.constructionStage + 1;
+                dispatch({ type: 'CLICK', amount });
+                soundManager.playClick();
+            },
             buyGenerator: (id) => dispatch({ type: 'START_PLACEMENT', typeId: id }),
-            researchTech: (id) => dispatch({ type: 'RESEARCH_TECH', id }),
-            upgradeBuilding: (id) => dispatch({ type: 'UPGRADE_BUILDING', buildingId: id }),
+            researchTech: (id) => {
+                dispatch({ type: 'RESEARCH_TECH', id });
+                soundManager.playUpgrade();
+            },
+            upgradeBuilding: (id) => {
+                dispatch({ type: 'UPGRADE_BUILDING', buildingId: id });
+                soundManager.playUpgrade();
+            },
             completeContract: (id) => dispatch({ type: 'COMPLETE_CONTRACT', contractId: id }),
             startPlacement: (id) => dispatch({ type: 'START_PLACEMENT', typeId: id }),
             placeBuilding: (x, y) => dispatch({ type: 'PLACE_BUILDING', x, y }),
             moveBuilding: (id, x, y) => dispatch({ type: 'MOVE_BUILDING', id, x, y }),
+            toggleBuilding: (id) => dispatch({ type: 'TOGGLE_BUILDING', id }),
             cancelPlacement: () => dispatch({ type: 'CANCEL_PLACEMENT' }),
             hireWorker: (workerType) => {
                 const cost = WORKER_COSTS[workerType];
-                const cap = (workerCaps as any)[workerType] || workerCaps.default;
-                if (state.balance >= cost && (state.workers[workerType] || 0) < cap) {
+                if (state.balance >= cost && workerCaps.current < workerCaps.max) {
                     dispatch({ type: 'HIRE_WORKER', workerType, cost });
                     soundManager.playUpgrade();
                 }
             },
-            resetGame: () => { localStorage.removeItem('story-imperia-save'); dispatch({ type: 'RESET_GAME' }); },
+            fireWorker: (workerType) => dispatch({ type: 'FIRE_WORKER', workerType }),
+            activateShift: () => dispatch({ type: 'ACTIVATE_SHIFT' }),
+            setWeather: (weather) => dispatch({ type: 'SET_WEATHER', weather }),
+            resetGame: () => {
+                if (confirm("Reset ALL progress?")) {
+                    localStorage.removeItem('story-imperia-save');
+                    dispatch({ type: 'RESET_GAME' });
+                }
+            },
             loadGame: (s) => dispatch({ type: 'LOAD_GAME', state: s }),
             emitJuice
         }}>
