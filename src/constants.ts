@@ -1,4 +1,4 @@
-import { Truck, Pickaxe, Factory, TowerControl, Tent, Banknote, Hammer, Zap, Star, Utensils, Fish, Mountain, Bird, Waves, Anchor, Droplets } from 'lucide-react';
+import { Truck, Pickaxe, Factory, TowerControl, Tent, Banknote, Hammer, Zap, Star, Utensils, Fish, Mountain, Bird, Waves, Anchor, Droplets, Church } from 'lucide-react';
 import type { Generator, Achievement, WorkerType, ResourceType } from './types';
 
 export const WORKER_COSTS: Record<WorkerType, number> = {
@@ -69,7 +69,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         produces: { wood: 1 },
         workerReq: { lumberjack: 1 },
         era: 0,
-        category: 'production'
+        category: 'production',
+        terrain: 'land',
+        description: 'Обеспечивает базовый приток древесины, необходимой для строительства первых зданий.'
     },
     {
         id: 'house',
@@ -78,7 +80,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         baseIncome: 0,
         icon: Tent,
         era: 0,
-        category: 'residential'
+        category: 'residential',
+        terrain: 'land',
+        description: 'Предоставляет жилье для ваших рабочих. Чем больше домов, тем больше населения может работать на ваших объектах.'
     },
     {
         id: 'stone_quarry',
@@ -90,7 +94,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { wood: 40 },
         workerReq: { stonecutter: 1 },
         era: 0,
-        category: 'production'
+        category: 'production',
+        terrain: 'land',
+        description: 'Добывает необработанный камень. Необходим для фундамента и более прочных конструкций.'
     },
     {
         id: 'hunter_cabin',
@@ -102,7 +108,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { wood: 30 },
         workerReq: { hunter: 1 },
         era: 0,
-        category: 'production'
+        category: 'production',
+        terrain: 'land',
+        description: 'Охотники добывают свежее мясо, пополняя запасы еды в лагере.'
     },
     {
         id: 'canteen',
@@ -115,7 +123,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { wood: 50, stone: 20 },
         workerReq: { cook: 1 },
         era: 0,
-        category: 'production'
+        category: 'production',
+        terrain: 'land',
+        description: 'Место, где повара готовят еду из сырых ресурсов. Важна для поддержания работоспособности персонала.'
     },
     {
         id: 'wood_market',
@@ -126,7 +136,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         consumes: { wood: 1 },
         researchCost: { wood: 500 },
         era: 0,
-        category: 'market'
+        category: 'market',
+        terrain: 'land',
+        description: 'Позволяет продавать излишки древесины за СК. Первый шаг к созданию стабильной экономики.'
     },
     {
         id: 'fish_trap',
@@ -136,7 +148,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         icon: Waves,
         produces: { food: 1 },
         era: 0,
-        category: 'production'
+        category: 'production',
+        terrain: 'water',
+        description: 'Простейшее устройство для ловли прибрежной рыбы. Работает автономно в воде.'
     },
     {
         id: 'water_purifier',
@@ -148,7 +162,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { wood: 40 },
         workerReq: { fisherman: 1 },
         era: 0,
-        category: 'production'
+        category: 'production',
+        terrain: 'water',
+        description: 'Очищает воду и привлекает больше рыбы, значительно повышая эффективность добычи пропитания.'
     },
     {
         id: 'river_trading_post',
@@ -159,7 +175,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         consumes: { food: 4 },
         researchCost: { wood: 100, stone: 40 },
         era: 0,
-        category: 'market'
+        category: 'market',
+        terrain: 'water',
+        description: 'Торговая точка на воде, обеспечивающая приток СК от продажи рыбных деликатесов.'
     },
     {
         id: 'fishing_dock',
@@ -173,7 +191,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { wood: 150, stone: 80 },
         workerReq: { fisherman: 2 },
         era: 1,
-        category: 'production'
+        category: 'production',
+        terrain: 'water',
+        description: 'Полноценный причал для рыболовных судов. Производит огромное количество еды для растущего поселения.'
     },
     {
         id: 'fish_market',
@@ -184,7 +204,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         consumes: { food: 10 },
         researchCost: { balance: 1500, food: 500 },
         era: 1,
-        category: 'market'
+        category: 'market',
+        terrain: 'land',
+        description: 'Специализированный магазин для продажи морепродуктов. Приносит высокую прибыль в СК.'
     },
     {
         id: 'truck',
@@ -196,7 +218,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { balance: 1000 },
         workerReq: { driver: 1 },
         era: 1,
-        category: 'production'
+        category: 'production',
+        terrain: 'land',
+        description: 'Перевозит грузы и приносит доход от логистических услуг.'
     },
     {
         id: 'iron_mine',
@@ -209,7 +233,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { wood: 300, stone: 200 },
         workerReq: { miner: 3 },
         era: 1,
-        category: 'production'
+        category: 'production',
+        terrain: 'land',
+        description: 'Глубокая шахта для добычи железной руды. Необходима для перехода в индустриальную эпоху.'
     },
     {
         id: 'sand_quarry',
@@ -222,7 +248,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { wood: 200, stone: 150 },
         workerReq: { miner: 2 },
         era: 1,
-        category: 'production'
+        category: 'production',
+        terrain: 'land',
+        description: 'Огромный карьер для масштабной добычи песка, необходимого для производства бетона.'
     },
     {
         id: 'excavator',
@@ -234,7 +262,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { balance: 2500, metal: 300 },
         workerReq: { driver: 1, engineer: 1 },
         era: 1,
-        category: 'production'
+        category: 'production',
+        terrain: 'land',
+        description: 'Мощная техника для земляных работ. Ускоряет подготовку площадок и приносит стабильный доход.'
     },
     {
         id: 'workshop',
@@ -248,7 +278,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { metal: 1000, wood: 2000 },
         workerReq: { welder: 2, lumberjack: 2 },
         era: 2,
-        category: 'production'
+        category: 'production',
+        terrain: 'land',
+        description: 'Продвинутый цех для переработки сырья в сложные строительные компоненты, такие как бетон.'
     },
     {
         id: 'concrete_plant',
@@ -260,7 +292,9 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { balance: 15000, metal: 2000 },
         workerReq: { engineer: 2, welder: 5 },
         era: 2,
-        category: 'production'
+        category: 'production',
+        terrain: 'land',
+        description: 'Автоматизированная линия производства бетона. Ключевое здание для строительства небоскребов.'
     },
     {
         id: 'crane',
@@ -272,7 +306,22 @@ export const GENERATORS_CONFIG: Generator[] = [
         researchCost: { concrete: 2000, metal: 5000 },
         workerReq: { engineer: 3, welder: 2 },
         era: 2,
-        category: 'production'
+        category: 'production',
+        terrain: 'land',
+        description: 'Вершина строительной инженерии. Позволяет возводить высочайшие конструкции города.'
+    },
+    {
+        id: 'chapel',
+        name: 'Часовня',
+        baseCost: 5000,
+        baseIncome: 0,
+        icon: Church,
+        resRequirements: { wood: 500, stone: 300 },
+        researchCost: { balance: 2000, wood: 400 },
+        era: 0,
+        category: 'optimization',
+        terrain: 'land',
+        description: 'Синхронизирует обеденное время: все здания в радиусе 5 клеток уходят на обед одновременно по сигналу Часовни. Это позволяет лучше планировать логистику и производство.\nЦикл работы: 2 смены (336с) накопления прогресса и 30с общего перерыва.'
     },
 ];
 
@@ -288,7 +337,7 @@ export const INITIAL_STATE = {
         workshop: 0, concrete_plant: 0, crane: 0, wood_market: 0, fish_market: 0
     },
     buildings: [],
-    unlockedTechs: ['sawmill', 'house', 'wood_market', 'fish_trap'],
+    unlockedTechs: ['sawmill', 'house', 'wood_market', 'fish_trap', 'chapel'],
     discoveredResources: ['food'] as ResourceType[],
     activeContracts: [],
     lastSaveTime: Date.now(),
@@ -299,6 +348,9 @@ export const INITIAL_STATE = {
     constructionStage: 0,
     achievements: [],
     placingBuildingTypeId: null as string | null,
+    happiness: 100,
+    reputation: 0,
+    godMode: false,
 };
 
 export const WEATHER_MODIFIERS = {
@@ -310,6 +362,10 @@ export const WEATHER_MODIFIERS = {
 export const SHIFT_DURATION = 30;
 export const SHIFT_COOLDOWN = 300;
 export const SHIFT_MULTIPLIER = 2.5;
+
+export const CHAPEL_WORK_DURATION = 336; // 2 weeks (1s = 1h)
+export const CHAPEL_LUNCH_DURATION = 30;
+export const CHAPEL_RADIUS = 200; // 5 cells
 
 export const SYNERGY_CONFIG = {
     CLUSTER_RADIUS: 85, // cells are 40x40, so 85px is ~2 cells diag
@@ -329,4 +385,11 @@ export const SYNERGY_CONFIG = {
         { source: 'sand_quarry', target: 'concrete_plant' },
         { source: 'hunter_cabin', target: 'canteen' },
     ]
+};
+
+export const HAPPINESS_THRESHOLDS = {
+    EUPHORIA: 90,
+    STABLE: 50,
+    DISCONTENT: 25,
+    CRISIS: 10
 };

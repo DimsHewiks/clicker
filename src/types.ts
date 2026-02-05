@@ -15,7 +15,9 @@ export interface Generator {
     researchCost?: Partial<Record<ResourceType | 'balance', number>>; // New: Resource cost to unlock
     requiredTech?: string[]; // Existing: Building ID required to unlock this
     era: number; // New: 0 (Camp), 1 (Quarry), 2 (Industrial)
-    category: 'production' | 'residential' | 'utility' | 'market';
+    category: 'production' | 'residential' | 'utility' | 'market' | 'optimization';
+    terrain?: 'land' | 'water';
+    description?: string;
 }
 
 export interface Achievement {
@@ -46,6 +48,10 @@ export interface Building {
     targetCanteenId?: string; // New: For visual lines
     isMissingWorkers: boolean; // New: For UI feedback
     isActive: boolean;
+    synergyBonus: number; // New: Cached bonus multiplier (e.g., 0.2 for 20%)
+    synergyStats: { cluster: number; chain: number; res: number }; // New: Cached stats for UI
+    isStriking?: boolean; // New: For happiness mechanic
+    chapelTimer?: number; // New: Timer for Chapel cycle
 }
 
 export interface GameState {
@@ -66,6 +72,9 @@ export interface GameState {
     achievements: string[];
     placingBuildingTypeId: string | null;
     discoveredResources: ResourceType[];
+    happiness: number; // New: 0-100
+    reputation: number; // New: global progression
+    godMode: boolean;
 }
 
 export type GameAction =
@@ -87,7 +96,8 @@ export type GameAction =
     | { type: 'MOVE_BUILDING'; id: string; x: number; y: number }
     | { type: 'TOGGLE_BUILDING'; id: string }
     | { type: 'FIRE_WORKER'; workerType: WorkerType }
-    | { type: 'CANCEL_PLACEMENT' };
+    | { type: 'CANCEL_PLACEMENT' }
+    | { type: 'TOGGLE_GOD_MODE' };
 
 export const CONSTRUCTION_STAGES = [
     { id: 0, name: 'Swamp', threshold: 0 },

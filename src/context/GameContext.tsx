@@ -4,7 +4,7 @@ import {
     GENERATORS_CONFIG, INITIAL_STATE, SHIFT_COOLDOWN,
     WEATHER_MODIFIERS, SHIFT_MULTIPLIER,
     FOOD_CONSUMPTION_RATE, WORKER_COSTS, LUNCH_INTERVAL, WALK_SPEED, SHIFT_DURATION,
-    SYNERGY_CONFIG
+    SYNERGY_CONFIG, CHAPEL_WORK_DURATION, CHAPEL_LUNCH_DURATION, CHAPEL_RADIUS
 } from '../constants';
 import { soundManager } from '../lib/sound';
 
@@ -30,9 +30,43 @@ const GameContext = createContext<{
     resetGame: () => void;
     loadGame: (state: GameState) => void;
     emitJuice: (x: number, y: number, text: string) => void;
+    toggleGodMode: () => void;
 } | null>(null);
 
 const juiceListeners: ((x: number, y: number, text: string) => void)[] = [];
+
+const calculateSynergies = (building: Building, allBuildings: Building[]): { bonus: number; stats: { cluster: number; chain: number; res: number } } => {
+    const config = GENERATORS_CONFIG.find(g => g.id === building.typeId);
+    if (!config) return { bonus: 0, stats: { cluster: 0, chain: 0, res: 0 } };
+
+    let cluster = 0;
+    let chain = 0;
+    let res = 0;
+
+    allBuildings.forEach(other => {
+        if (other.id === building.id || !other.isActive || !other.isPlaced) return;
+        const dist = Math.sqrt(Math.pow(other.x - building.x, 2) + Math.pow(other.y - building.y, 2));
+
+        if (other.typeId === building.typeId && dist < SYNERGY_CONFIG.CLUSTER_RADIUS) {
+            cluster++;
+        }
+
+        const chainRule = SYNERGY_CONFIG.CHAINS.find(c => c.target === building.typeId && c.source === other.typeId);
+        if (chainRule && dist < SYNERGY_CONFIG.CHAIN_RADIUS) {
+            chain++;
+        }
+
+        if (other.typeId === 'house' && dist < SYNERGY_CONFIG.RESIDENTIAL_RADIUS) {
+            if (config.category === 'market' || building.typeId === 'canteen') res++;
+        }
+    });
+
+    const bonus = (cluster * SYNERGY_CONFIG.BONUSES.CLUSTER_PER_BUILDING) +
+        (chain * SYNERGY_CONFIG.BONUSES.CHAIN_PROCESSOR) +
+        (res * (config.category === 'market' ? SYNERGY_CONFIG.BONUSES.MARKET_PER_HOUSE : (building.typeId === 'canteen' ? SYNERGY_CONFIG.BONUSES.CANTEEN_PER_HOUSE : 0)));
+
+    return { bonus, stats: { cluster, chain, res } };
+};
 
 function gameReducer(state: GameState, action: GameAction): GameState {
     switch (action.type) {
@@ -61,15 +95,17 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 return (state.resources[res as ResourceType] || 0) >= (amount as number);
             });
 
-            if (hasRes) {
+            if (state.godMode || hasRes) {
                 const newRes = { ...state.resources };
-                Object.entries(resReqs).forEach(([res, amount]) => {
-                    if (res !== 'balance') newRes[res as ResourceType] -= (amount as number);
-                });
+                if (!state.godMode) {
+                    Object.entries(resReqs).forEach(([res, amount]) => {
+                        if (res !== 'balance') newRes[res as ResourceType] -= (amount as number);
+                    });
+                }
 
                 return {
                     ...state,
-                    balance: state.balance - scCost,
+                    balance: state.godMode ? state.balance : state.balance - scCost,
                     resources: newRes,
                     unlockedTechs: [...state.unlockedTechs, action.id]
                 };
@@ -89,11 +125,13 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 (state.resources[res as ResourceType] || 0) >= amount
             );
 
-            if (state.balance >= bCost && hasRes) {
+            if (state.godMode || (state.balance >= bCost && hasRes)) {
                 const newRes = { ...state.resources };
-                Object.entries(config.resRequirements || {}).forEach(([res, amount]) => {
-                    newRes[res as ResourceType] -= amount;
-                });
+                if (!state.godMode) {
+                    Object.entries(config.resRequirements || {}).forEach(([res, amount]) => {
+                        newRes[res as ResourceType] -= amount;
+                    });
+                }
 
                 const newBuilding: Building = {
                     id: Math.random().toString(36).substr(2, 9),
@@ -105,26 +143,38 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                     status: 'working',
                     lunchTimer: LUNCH_INTERVAL + Math.random() * 20,
                     level: 1,
-                    isMissingWorkers: false
+                    isMissingWorkers: false,
+                    synergyBonus: 0,
+                    synergyStats: { cluster: 0, chain: 0, res: 0 },
+                    chapelTimer: state.placingBuildingTypeId === 'chapel' ? CHAPEL_WORK_DURATION : undefined
                 };
+                const buildings = [...state.buildings, newBuilding];
+                // Recalculate synergies for all buildings when a new one is placed
+                const updatedBuildings = buildings.map(b => {
+                    const { bonus, stats } = calculateSynergies(b, buildings);
+                    return { ...b, synergyBonus: bonus, synergyStats: stats };
+                });
 
                 return {
                     ...state,
-                    balance: state.balance - bCost,
+                    balance: state.godMode ? state.balance : state.balance - bCost,
                     resources: newRes,
                     generators: { ...state.generators, [typeId]: bCount + 1 },
-                    buildings: [...state.buildings, newBuilding],
+                    buildings: updatedBuildings,
                     placingBuildingTypeId: null
                 };
             }
             return { ...state, placingBuildingTypeId: null };
         }
 
-        case 'TOGGLE_BUILDING':
-            return {
-                ...state,
-                buildings: state.buildings.map(b => b.id === action.id ? { ...b, isActive: !b.isActive } : b)
-            };
+        case 'TOGGLE_BUILDING': {
+            const buildings = state.buildings.map(b => b.id === action.id ? { ...b, isActive: !b.isActive } : b);
+            const updatedBuildings = buildings.map(b => {
+                const { bonus, stats } = calculateSynergies(b, buildings);
+                return { ...b, synergyBonus: bonus, synergyStats: stats };
+            });
+            return { ...state, buildings: updatedBuildings };
+        }
 
         case 'UPGRADE_BUILDING': {
             const bld = state.buildings.find(b => b.id === action.buildingId);
@@ -141,15 +191,17 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 (state.resources[res as ResourceType] || 0) >= amount * upgradeMultiplier
             );
 
-            if (state.balance >= scCost && hasRes) {
+            if (state.godMode || (state.balance >= scCost && hasRes)) {
                 const newRes = { ...state.resources };
-                Object.entries(resReqs || {}).forEach(([res, amount]) => {
-                    newRes[res as ResourceType] -= amount * upgradeMultiplier;
-                });
+                if (!state.godMode) {
+                    Object.entries(resReqs || {}).forEach(([res, amount]) => {
+                        newRes[res as ResourceType] -= amount * upgradeMultiplier;
+                    });
+                }
 
                 return {
                     ...state,
-                    balance: state.balance - scCost,
+                    balance: state.godMode ? state.balance : state.balance - scCost,
                     resources: newRes,
                     buildings: state.buildings.map(b =>
                         b.id === action.buildingId ? { ...b, level: b.level + 1 } : b
@@ -199,12 +251,50 @@ function gameReducer(state: GameState, action: GameAction): GameState {
             let nDiscovered = [...state.discoveredResources];
             const tWrk = Object.values(state.workers).reduce((a, b) => a + (b || 0), 0);
 
-            nRes.food -= tWrk * FOOD_CONSUMPTION_RATE * dt;
+            if (!state.godMode) {
+                nRes.food -= tWrk * FOOD_CONSUMPTION_RATE * dt;
+
+                // Extra consumption during lunch
+                const lunchWorkersCount = state.buildings
+                    .filter(b => b.status === 'lunch' && b.isPlaced && b.isActive)
+                    .reduce((acc, b) => {
+                        const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
+                        if (!config?.workerReq) return acc;
+                        return acc + Object.values(config.workerReq).reduce((a, b_val) => a + (b_val || 0), 0);
+                    }, 0);
+                nRes.food -= lunchWorkersCount * FOOD_CONSUMPTION_RATE * 0.5 * dt;
+            }
+
             const isStarving = nRes.food <= 0;
             if (nRes.food < 0) { nRes.food = 0; }
 
-            // Efficiency
-            // Efficiency calculation based on ACTIVE buildings
+            // --- Happiness Calculation ---
+            const houseCount = state.generators.house || 0;
+            const housingCapacity = 5 + (houseCount * 5);
+
+            let happinessDelta = 0;
+            // Food Factor
+            if (nRes.food > 100) happinessDelta += 0.5;
+            else if (nRes.food <= 0) happinessDelta -= 3.0;
+
+            // Housing Factor
+            if (tWrk > housingCapacity) {
+                happinessDelta -= (tWrk - housingCapacity) * 0.8;
+            } else {
+                happinessDelta += 0.2;
+            }
+
+            // Variety Factor
+            const activeTypeIds = new Set(state.buildings.filter(b => b.isPlaced && b.isActive).map(b => b.typeId));
+            happinessDelta += activeTypeIds.size * 0.1;
+
+            let nHappiness = Math.max(0, Math.min(100, state.happiness + happinessDelta * dt));
+
+            // Reputation slowly grows with high happiness
+            let nReputation = state.reputation;
+            if (nHappiness > 80) nReputation += 0.01 * dt;
+            // --- End Happiness ---
+
             const wDmd: Record<string, number> = {};
             state.buildings.forEach(b => {
                 if (!b.isActive || !b.isPlaced) return;
@@ -229,10 +319,22 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 }
             });
 
+            const cacheConfigs = new Map();
+            const getCachedConfig = (typeId: string) => {
+                if (!cacheConfigs.has(typeId)) cacheConfigs.set(typeId, GENERATORS_CONFIG.find(g => g.id === typeId));
+                return cacheConfigs.get(typeId);
+            };
+
             const canteens = state.buildings.filter(b => b.typeId === 'canteen' && b.isPlaced && b.isActive);
+            const activeChapels = state.buildings.filter(b =>
+                b.typeId === 'chapel' &&
+                b.isPlaced &&
+                b.isActive &&
+                (b.chapelTimer || 0) <= 0
+            );
 
             const blds = state.buildings.map(b => {
-                const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
+                const config = getCachedConfig(b.typeId);
                 let s = b.status;
                 let t = b.lunchTimer - dt;
                 let targetCanteenId = b.targetCanteenId;
@@ -243,11 +345,28 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                     isMissingWorkers = eff < 1;
                 }
 
-                if (config?.category === 'residential') {
-                    return { ...b, status: 'working' as const, lunchTimer: LUNCH_INTERVAL, isMissingWorkers: false };
+                // Chapel timer logic
+                let chapelTimer = b.chapelTimer;
+                if (b.typeId === 'chapel') {
+                    chapelTimer = (chapelTimer || 0) - dt;
+                    if (chapelTimer <= -CHAPEL_LUNCH_DURATION) {
+                        chapelTimer = CHAPEL_WORK_DURATION;
+                    }
                 }
 
-                if (s === 'working' && t <= 0 && b.isActive) {
+                if (config?.category === 'residential' || config?.category === 'optimization') {
+                    return { ...b, status: 'working' as const, lunchTimer: LUNCH_INTERVAL, isMissingWorkers: false, isStriking: false, chapelTimer };
+                }
+
+                let nIsStriking = b.isStriking;
+                if (nHappiness < 25 && b.isActive && b.status === 'working' && Math.random() < 0.005 * dt) {
+                    nIsStriking = true;
+                }
+                if (nHappiness >= 50) {
+                    nIsStriking = false;
+                }
+
+                if (s === 'working' && t <= 0 && b.isActive && !nIsStriking) {
                     s = 'lunch' as const;
                     const nearestCanteen = canteens.length > 0
                         ? canteens.reduce((prev, curr) => {
@@ -265,7 +384,52 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                     t = LUNCH_INTERVAL;
                     targetCanteenId = undefined;
                 }
-                return { ...b, status: s as any, lunchTimer: t, targetCanteenId, isMissingWorkers };
+
+                // Check if this building is in range of ANY active chapel
+                if (b.typeId !== 'chapel' && b.typeId !== 'house' && b.isPlaced && b.isActive) {
+                    const nearbyChapels = state.buildings
+                        .filter(c =>
+                            c.typeId === 'chapel' &&
+                            c.isPlaced &&
+                            c.isActive
+                        )
+                        .map(c => ({
+                            chapel: c,
+                            dist: Math.sqrt(Math.pow(c.x - b.x, 2) + Math.pow(c.y - b.y, 2))
+                        }))
+                        .filter(c => c.dist <= CHAPEL_RADIUS)
+                        .sort((a, b_chap) => a.dist - b_chap.dist);
+
+                    if (nearbyChapels.length > 0) {
+                        // EXCLUSIVITY: Only follow the NEAREST chapel
+                        const nearestChapel = nearbyChapels[0].chapel;
+                        const isLunching = (nearestChapel.chapelTimer || 0) <= 0;
+
+                        if (isLunching) {
+                            // Force lunch if nearest chapel is lunching
+                            if (s === 'working') {
+                                s = 'lunch' as const;
+                                const nearestCanteen = canteens.length > 0
+                                    ? canteens.reduce((prev, curr) => {
+                                        const d1 = Math.sqrt(Math.pow(curr.x - b.x, 2) + Math.pow(curr.y - b.y, 2));
+                                        const d2 = Math.sqrt(Math.pow(prev.x - b.x, 2) + Math.pow(prev.y - b.y, 2));
+                                        return d1 < d2 ? curr : prev;
+                                    })
+                                    : null;
+                                targetCanteenId = nearestCanteen?.id;
+                                const dist = nearestCanteen ? Math.sqrt(Math.pow(nearestCanteen.x - b.x, 2) + Math.pow(nearestCanteen.y - b.y, 2)) : 800;
+                                t = Math.max(5, (dist / WALK_SPEED) * 2);
+                            }
+                        } else {
+                            // FORCE WORKING if nearest chapel is not lunching
+                            s = 'working' as const;
+                            t = LUNCH_INTERVAL; // Reset internal timer
+                            targetCanteenId = undefined;
+                        }
+                    }
+                }
+
+                return { ...b, status: s as any, lunchTimer: t, targetCanteenId, isMissingWorkers, isStriking: nIsStriking, chapelTimer };
             });
 
             let incomeTotal = 0;
@@ -274,35 +438,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
             const shiftMul = state.shiftActive ? SHIFT_MULTIPLIER : 1.0;
 
             blds.forEach(b => {
-                const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
-                if (!config || b.status === 'lunch' || !b.isPlaced || !b.isActive) return;
-
-                // --- SYNERGY CALCULATION ---
-                let clusterBonus = 0;
-                let chainBonus = 0;
-                let resBonus = 0;
-
-                state.buildings.forEach(other => {
-                    if (other.id === b.id || !other.isActive) return;
-                    const dist = Math.sqrt(Math.pow(other.x - b.x, 2) + Math.pow(other.y - b.y, 2));
-
-                    // Cluster
-                    if (other.typeId === b.typeId && dist < SYNERGY_CONFIG.CLUSTER_RADIUS) {
-                        clusterBonus += SYNERGY_CONFIG.BONUSES.CLUSTER_PER_BUILDING;
-                    }
-
-                    // Chain
-                    const chain = SYNERGY_CONFIG.CHAINS.find(c => c.target === b.typeId && c.source === other.typeId);
-                    if (chain && dist < SYNERGY_CONFIG.CHAIN_RADIUS) {
-                        chainBonus += SYNERGY_CONFIG.BONUSES.CHAIN_PROCESSOR;
-                    }
-
-                    // Residential
-                    if (other.typeId === 'house' && dist < SYNERGY_CONFIG.RESIDENTIAL_RADIUS) {
-                        if (config.category === 'market') resBonus += SYNERGY_CONFIG.BONUSES.MARKET_PER_HOUSE;
-                        if (b.typeId === 'canteen') resBonus += SYNERGY_CONFIG.BONUSES.CANTEEN_PER_HOUSE;
-                    }
-                });
+                const config = getCachedConfig(b.typeId);
+                if (!config || b.status === 'lunch' || !b.isPlaced || !b.isActive || b.isStriking) return;
 
                 let eff = 1.0;
                 if (config.workerReq) {
@@ -315,22 +452,29 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 }
 
                 if (config.consumes && eff > 0) {
-                    const canConsume = Object.entries(config.consumes).every(([res, val]) => (nRes[res as ResourceType] || 0) >= val * dt);
+                    const canConsume = Object.entries(config.consumes).every(([res, val]) => (nRes[res as ResourceType] || 0) >= (val as number) * dt);
                     if (!canConsume) {
                         eff = 0;
                     } else {
-                        Object.entries(config.consumes).forEach(([res, val]) => nRes[res as ResourceType] -= val * dt);
+                        Object.entries(config.consumes).forEach(([res, val]) => nRes[res as ResourceType] -= (val as number) * dt);
                     }
                 }
 
                 const upgradeBonus = 1 + (b.level - 1) * 0.5;
-                const totalBoost = eff * (1 + clusterBonus + chainBonus + resBonus) * upgradeBonus * foremanMul * weatherMul * shiftMul;
+
+                // Critical success based on happiness
+                let critMul = 1.0;
+                if (nHappiness >= 90 && Math.random() < 0.05) {
+                    critMul = 2.0;
+                }
+
+                const totalBoost = eff * (1 + b.synergyBonus) * upgradeBonus * foremanMul * weatherMul * shiftMul * critMul;
 
                 incomeTotal += config.baseIncome * totalBoost * dt;
 
                 if (config.produces && eff > 0) {
                     Object.entries(config.produces).forEach(([rType, val]) => {
-                        const amount = val * totalBoost * dt;
+                        const amount = (val as number) * totalBoost * dt;
                         nRes[rType as ResourceType] += amount;
                         if (!nDiscovered.includes(rType as ResourceType)) nDiscovered.push(rType as ResourceType);
                     });
@@ -339,7 +483,6 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 
             const newContracts = [...state.activeContracts];
             if (state.activeContracts.length < 3 && Math.random() < (0.001 * dt * 10)) {
-                // Era-appropriate resources
                 const possibleRes: ResourceType[] = ['wood', 'food'];
                 if (state.discoveredResources.includes('stone')) possibleRes.push('stone');
                 if (state.discoveredResources.includes('metal')) possibleRes.push('metal');
@@ -386,6 +529,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 weatherTimer: nWeatherTimer,
                 shiftActive: nShiftActive,
                 shiftTimer: nShiftTimer,
+                happiness: nHappiness,
+                reputation: nReputation,
                 lastSaveTime: Date.now()
             };
         }
@@ -419,9 +564,25 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 achievements: [...state.achievements, action.id]
             };
 
-        case 'LOAD_GAME': return { ...state, ...action.state };
+        case 'LOAD_GAME': {
+            // Ensure buildings from old save have synergy fields
+            const loadedState = { ...state, ...action.state };
+            loadedState.buildings = (loadedState.buildings || []).map(b => {
+                if (b.synergyBonus !== undefined) return b;
+                const { bonus, stats } = calculateSynergies(b, loadedState.buildings);
+                return { ...b, synergyBonus: bonus, synergyStats: stats };
+            });
+            return loadedState;
+        }
         case 'RESET_GAME': return INITIAL_STATE as GameState;
-        case 'MOVE_BUILDING': return { ...state, buildings: state.buildings.map(b => b.id === action.id ? { ...b, x: action.x, y: action.y } : b) };
+        case 'MOVE_BUILDING': {
+            const buildings = state.buildings.map(b => b.id === action.id ? { ...b, x: action.x, y: action.y } : b);
+            const updatedBuildings = buildings.map(b => {
+                const { bonus, stats } = calculateSynergies(b, buildings);
+                return { ...b, synergyBonus: bonus, synergyStats: stats };
+            });
+            return { ...state, buildings: updatedBuildings };
+        }
         case 'HIRE_WORKER': return { ...state, balance: state.balance - action.cost, workers: { ...state.workers, [action.workerType]: (state.workers[action.workerType] || 0) + 1 } };
         case 'FIRE_WORKER':
             if ((state.workers[action.workerType] || 0) <= 0) return state;
@@ -431,6 +592,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 balance: state.balance + refund,
                 workers: { ...state.workers, [action.workerType]: state.workers[action.workerType] - 1 }
             };
+        case 'TOGGLE_GOD_MODE':
+            return { ...state, godMode: !state.godMode };
         default: return state;
     }
 }
@@ -469,6 +632,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const tWrk = Object.values(state.workers).reduce((a, b) => a + (b || 0), 0);
         resRates.food -= tWrk * FOOD_CONSUMPTION_RATE;
 
+        // Extra consumption rate during lunch
+        const lunchWorkersCount = state.buildings
+            .filter(b => b.status === 'lunch' && b.isPlaced && b.isActive)
+            .reduce((acc, b) => {
+                const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
+                if (!config?.workerReq) return acc;
+                return acc + Object.values(config.workerReq).reduce((a, b_val) => a + (b_val || 0), 0);
+            }, 0);
+        resRates.food -= lunchWorkersCount * FOOD_CONSUMPTION_RATE * 0.5;
+
         const foremanMul = 1 + (state.workers.foreman || 0) * 0.2;
         const weatherMul = WEATHER_MODIFIERS[state.weather] || 1.0;
         const shiftMul = state.shiftActive ? SHIFT_MULTIPLIER : 1.0;
@@ -477,48 +650,23 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
             if (!config || b.status === 'lunch' || !b.isPlaced || !b.isActive) return;
 
-            // --- SYNERGY CALCULATION IN MEMO ---
-            let clusterBonus = 0;
-            let chainBonus = 0;
-            let resBonus = 0;
-
-            state.buildings.forEach(other => {
-                if (other.id === b.id || !other.isActive) return;
-                const dist = Math.sqrt(Math.pow(other.x - b.x, 2) + Math.pow(other.y - b.y, 2));
-
-                if (other.typeId === b.typeId && dist < SYNERGY_CONFIG.CLUSTER_RADIUS) {
-                    clusterBonus += SYNERGY_CONFIG.BONUSES.CLUSTER_PER_BUILDING;
-                }
-
-                const chain = SYNERGY_CONFIG.CHAINS.find(c => c.target === b.typeId && c.source === other.typeId);
-                if (chain && dist < SYNERGY_CONFIG.CHAIN_RADIUS) {
-                    chainBonus += SYNERGY_CONFIG.BONUSES.CHAIN_PROCESSOR;
-                }
-
-                if (other.typeId === 'house' && dist < SYNERGY_CONFIG.RESIDENTIAL_RADIUS) {
-                    if (config.category === 'market') resBonus += SYNERGY_CONFIG.BONUSES.MARKET_PER_HOUSE;
-                    if (b.typeId === 'canteen') resBonus += SYNERGY_CONFIG.BONUSES.CANTEEN_PER_HOUSE;
-                }
-            });
-
             let eff = 1.0;
             if (config.workerReq) {
                 const reqTypes = Object.keys(config.workerReq) as WorkerType[];
                 eff = Math.min(...reqTypes.map(wType => wEff[wType] ?? 0));
             }
 
-            // Consumption check for rates display
             if (config.consumes) {
                 const canConsume = Object.entries(config.consumes).every(([res]) => {
                     const available = state.resources[res as ResourceType];
-                    // If we have 0 and the net rate (so far) is <= 0, we can't consume
                     return available > 0 || resRates[res as ResourceType] > 0;
                 });
                 if (!canConsume) eff = 0;
             }
 
             const upgradeBonus = 1 + (b.level - 1) * 0.5;
-            const totalBoost = eff * (1 + clusterBonus + chainBonus + resBonus) * upgradeBonus * foremanMul * weatherMul * shiftMul;
+            // Use cached synergyBonus in memo too
+            const totalBoost = eff * (1 + b.synergyBonus) * upgradeBonus * foremanMul * weatherMul * shiftMul;
 
             incomeTotal += config.baseIncome * totalBoost;
 
@@ -536,14 +684,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         return { incomePerSecond: incomeTotal, resourceRates: resRates };
-    }, [state]);
+    }, [state.buildings, state.workers, state.weather, state.shiftActive]); // Optimized dependencies
 
     const workerCaps = useMemo(() => {
         const total = Object.values(state.workers || {}).reduce((a, b) => a + (b || 0), 0);
         const houseCount = state.generators?.house || 0;
         const max = 5 + (houseCount * 5);
         return { current: total, max };
-    }, [state.workers, state.generators]);
+    }, [state.workers, state.generators.house]); // Optimized dependencies
 
     useEffect(() => {
         const saved = localStorage.getItem('story-imperia-save');
@@ -554,17 +702,26 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, []);
 
     useEffect(() => {
-        const interval = setInterval(() => localStorage.setItem('story-imperia-save', JSON.stringify(state)), 5000);
+        const interval = setInterval(() => localStorage.setItem('story-imperia-save', JSON.stringify(state)), 10000); // Reduce save frequency
         return () => clearInterval(interval);
     }, [state]);
 
     useEffect(() => {
         let frameId: number;
-        const loop = () => {
-            const now = Date.now();
-            const dt = Math.min((now - lastTickRef.current) / 1000, 1.0);
-            lastTickRef.current = now;
-            if (dt > 0) dispatch({ type: 'TICK', dt });
+        let lastTimestamp = 0;
+        const tickRate = 1000 / 10; // 10 ticks per second
+
+        const loop = (timestamp: number) => {
+            if (!lastTimestamp) lastTimestamp = timestamp;
+            const elapsed = timestamp - lastTimestamp;
+
+            if (elapsed >= tickRate) {
+                const now = Date.now();
+                const dt = Math.min((now - lastTickRef.current) / 1000, 1.0);
+                lastTickRef.current = now;
+                if (dt > 0) dispatch({ type: 'TICK', dt });
+                lastTimestamp = timestamp;
+            }
             frameId = requestAnimationFrame(loop);
         };
         frameId = requestAnimationFrame(loop);
@@ -598,8 +755,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             cancelPlacement: () => dispatch({ type: 'CANCEL_PLACEMENT' }),
             hireWorker: (workerType) => {
                 const cost = WORKER_COSTS[workerType];
-                if (state.balance >= cost && workerCaps.current < workerCaps.max) {
-                    dispatch({ type: 'HIRE_WORKER', workerType, cost });
+                if (state.godMode || (state.balance >= cost && workerCaps.current < workerCaps.max)) {
+                    dispatch({ type: 'HIRE_WORKER', workerType, cost: state.godMode ? 0 : cost });
                     soundManager.playUpgrade();
                 }
             },
@@ -613,6 +770,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
             },
             loadGame: (s) => dispatch({ type: 'LOAD_GAME', state: s }),
+            toggleGodMode: () => dispatch({ type: 'TOGGLE_GOD_MODE' }),
             emitJuice
         }}>
             {children}
