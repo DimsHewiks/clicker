@@ -204,12 +204,14 @@ function gameReducer(state: GameState, action: GameAction): GameState {
             if (nRes.food < 0) { nRes.food = 0; }
 
             // Efficiency
+            // Efficiency calculation based on ACTIVE buildings
             const wDmd: Record<string, number> = {};
-            GENERATORS_CONFIG.forEach(gen => {
-                const count = state.generators[gen.id] || 0;
-                if (count > 0 && gen.workerReq) {
-                    Object.entries(gen.workerReq).forEach(([wType, wNeeded]) => {
-                        wDmd[wType] = (wDmd[wType] || 0) + (wNeeded * count);
+            state.buildings.forEach(b => {
+                if (!b.isActive || !b.isPlaced) return;
+                const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
+                if (config?.workerReq) {
+                    Object.entries(config.workerReq).forEach(([wType, wNeeded]) => {
+                        wDmd[wType] = (wDmd[wType] || 0) + (wNeeded as number);
                     });
                 }
             });
@@ -439,11 +441,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const { incomePerSecond, resourceRates } = useMemo(() => {
         const wDmd: Record<string, number> = {};
-        GENERATORS_CONFIG.forEach(gen => {
-            const count = state.generators[gen.id] || 0;
-            if (count > 0 && gen.workerReq) {
-                Object.entries(gen.workerReq).forEach(([wType, wNeeded]) => {
-                    wDmd[wType] = (wDmd[wType] || 0) + (wNeeded * count);
+        state.buildings.forEach(b => {
+            if (!b.isActive || !b.isPlaced) return;
+            const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
+            if (config?.workerReq) {
+                Object.entries(config.workerReq).forEach(([wType, wNeeded]) => {
+                    wDmd[wType] = (wDmd[wType] || 0) + (wNeeded as number);
                 });
             }
         });
@@ -504,8 +507,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 eff = Math.min(...reqTypes.map(wType => wEff[wType] ?? 0));
             }
 
+            // Consumption check for rates display
             if (config.consumes) {
-                const canConsume = Object.entries(config.consumes).every(([res]) => (state.resources[res as ResourceType] || 0) > 0);
+                const canConsume = Object.entries(config.consumes).every(([res]) => {
+                    const available = state.resources[res as ResourceType];
+                    // If we have 0 and the net rate (so far) is <= 0, we can't consume
+                    return available > 0 || resRates[res as ResourceType] > 0;
+                });
                 if (!canConsume) eff = 0;
             }
 

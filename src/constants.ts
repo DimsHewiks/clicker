@@ -1,4 +1,4 @@
-import { Truck, Pickaxe, Factory, TowerControl, Tent, Plane, Trophy, Banknote, Hammer, Zap, Star, Utensils, Fish, Mountain, Trees, Bird } from 'lucide-react';
+import { Truck, Pickaxe, Factory, TowerControl, Tent, Banknote, Hammer, Zap, Star, Utensils, Fish, Mountain, Bird, Waves, Anchor, Droplets } from 'lucide-react';
 import type { Generator, Achievement, WorkerType, ResourceType } from './types';
 
 export const WORKER_COSTS: Record<WorkerType, number> = {
@@ -129,16 +129,49 @@ export const GENERATORS_CONFIG: Generator[] = [
         category: 'market'
     },
     {
+        id: 'fish_trap',
+        name: 'Верша',
+        baseCost: 300,
+        baseIncome: 0,
+        icon: Waves,
+        produces: { food: 1 },
+        era: 0,
+        category: 'production'
+    },
+    {
+        id: 'water_purifier',
+        name: 'Фильтр воды',
+        baseCost: 650,
+        baseIncome: 0,
+        icon: Droplets,
+        produces: { food: 2 },
+        researchCost: { wood: 40 },
+        workerReq: { fisherman: 1 },
+        era: 0,
+        category: 'production'
+    },
+    {
+        id: 'river_trading_post',
+        name: 'Речной пост',
+        baseCost: 1500,
+        baseIncome: 30,
+        icon: Anchor,
+        consumes: { food: 4 },
+        researchCost: { wood: 100, stone: 40 },
+        era: 0,
+        category: 'market'
+    },
+    {
         id: 'fishing_dock',
         name: 'Рыбацкий причал',
-        baseCost: 800,
+        baseCost: 2000,
         baseIncome: 0,
         icon: Fish,
-        produces: { food: 5 },
-        resRequirements: { wood: 100, stone: 50 },
-        requiredTech: ['canteen'],
-        researchCost: { wood: 100, stone: 50 },
-        workerReq: { fisherman: 1 },
+        produces: { food: 8 },
+        resRequirements: { wood: 200, stone: 100 },
+        requiredTech: ['water_purifier'],
+        researchCost: { wood: 150, stone: 80 },
+        workerReq: { fisherman: 2 },
         era: 1,
         category: 'production'
     },
@@ -250,11 +283,12 @@ export const INITIAL_STATE = {
     clickCount: 0,
     generators: {
         sawmill: 0, house: 0, stone_quarry: 0, hunter_cabin: 0, canteen: 0,
+        fish_trap: 0, water_purifier: 0, river_trading_post: 0,
         fishing_dock: 0, truck: 0, iron_mine: 0, sand_quarry: 0, excavator: 0,
         workshop: 0, concrete_plant: 0, crane: 0, wood_market: 0, fish_market: 0
     },
     buildings: [],
-    unlockedTechs: ['sawmill', 'house', 'wood_market'],
+    unlockedTechs: ['sawmill', 'house', 'wood_market', 'fish_trap'],
     discoveredResources: ['food'] as ResourceType[],
     activeContracts: [],
     lastSaveTime: Date.now(),
@@ -289,6 +323,7 @@ export const SYNERGY_CONFIG = {
     },
     CHAINS: [
         { source: 'sawmill', target: 'wood_market' },
+        { source: 'fish_trap', target: 'river_trading_post' },
         { source: 'fishing_dock', target: 'fish_market' },
         { source: 'iron_mine', target: 'workshop' },
         { source: 'sand_quarry', target: 'concrete_plant' },

@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { useGame } from '@/context/GameContext';
 import { motion } from 'framer-motion';
-import { Building2, Truck, Pickaxe, Factory, TowerControl, Tent, Plane, Utensils, Fish, Waves, Hammer, Banknote } from 'lucide-react';
-import { GRID_SIZE, GENERATORS_CONFIG } from '@/constants';
+import { Building2, Truck, Pickaxe, Factory, TowerControl, Tent, Plane, Utensils, Fish, Waves, Hammer, Banknote, Droplets, Anchor, Sparkles } from 'lucide-react';
+import { GRID_SIZE, GENERATORS_CONFIG, SYNERGY_CONFIG } from '@/constants';
 import type { Building } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -21,15 +21,15 @@ const ICONS: Record<string, React.ElementType> = {
     sawmill: Hammer,
     wood_market: Banknote,
     fish_market: Fish,
+    fish_trap: Waves,
+    water_purifier: Droplets,
+    river_trading_post: Anchor,
 };
 
 const isWaterCell = (gx: number, gy: number) => {
     const val = (Math.sin(gx * 0.4) * Math.cos(gy * 0.4));
     return val > 0.7;
 };
-
-import { SYNERGY_CONFIG } from '@/constants';
-import { Sparkles } from 'lucide-react';
 
 const BuildingNode = ({ building, buildings, onMove, onUpgrade, onToggle }: { building: Building, buildings: Building[], onMove: (gx: number, gy: number) => void, onUpgrade: () => void, onToggle: () => void }) => {
     const Icon = ICONS[building.typeId] || Building2;
@@ -166,7 +166,15 @@ export const ZoneMap: React.FC = () => {
 
     return (
         <div ref={containerRef} className="relative w-full h-full bg-[#0d0f14] overflow-hidden select-none" onMouseMove={handleMouseMove} onClick={() => {
-            if (state.placingBuildingTypeId) placeBuilding(mouseGrid.gx, mouseGrid.gy);
+            if (state.placingBuildingTypeId) {
+                const isWaterBuilding = ['fish_trap', 'water_purifier', 'river_trading_post', 'fishing_dock'].includes(state.placingBuildingTypeId);
+                const isWater = isWaterCell(mouseGrid.gx / GRID_SIZE, mouseGrid.gy / GRID_SIZE);
+
+                if (isWaterBuilding && !isWater) return;
+                if (!isWaterBuilding && isWater) return;
+
+                placeBuilding(mouseGrid.gx, mouseGrid.gy);
+            }
             else click();
         }}>
             <div className="absolute inset-0 opacity-[0.05]" style={{
@@ -242,21 +250,6 @@ export const ZoneMap: React.FC = () => {
                         <div className="absolute flex items-center justify-center w-10 h-10 border-2 border-blue-500 border-dashed rounded bg-blue-500/10 animate-pulse pointer-events-none"
                             style={{ left: mouseGrid.gx, top: mouseGrid.gy, marginLeft: -20, marginTop: -20 }} />
                     )}
-
-                    {/* Juice - Removed AnimatePresence and juice rendering */}
-                    {/* <AnimatePresence>
-                        {juices.map(j => (
-                            <motion.div
-                                key={j.id}
-                                initial={{ y: j.y - 40, x: j.x, opacity: 1, scale: 0.5 }}
-                                animate={{ y: j.y - 100, opacity: 0, scale: 1.2 }}
-                                className="absolute text-[12px] font-black text-white pointer-events-none whitespace-nowrap bg-blue-600/80 backdrop-blur-sm px-2 py-0.5 rounded-full border border-blue-400/50 shadow-lg -translate-x-1/2"
-                                style={{ left: 0, top: 0 }}
-                            >
-                                {j.text}
-                            </motion.div>
-                        ))}
-                    </AnimatePresence> */}
                 </div>
             </div>
         </div>

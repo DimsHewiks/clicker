@@ -7,7 +7,7 @@ import {
     Users, Hammer, Flame, Anchor, ChefHat, Zap, Shield,
     ClipboardList, Pickaxe, Mountain, Bird
 } from 'lucide-react';
-import { ACHIEVEMENTS_CONFIG, WORKER_COSTS, GENERATORS_CONFIG } from '@/constants';
+import { ACHIEVEMENTS_CONFIG, WORKER_COSTS, GENERATORS_CONFIG, SYNERGY_CONFIG } from '@/constants';
 import type { WorkerType, ResourceType } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -244,8 +244,49 @@ export const LeftPanel: React.FC = () => {
                             const count = state.generators[gen.id] || 0;
                             const buildingInstances = state.buildings.filter(b => b.typeId === gen.id && b.isActive && b.status !== 'lunch');
 
-                            // Calculate total output including synergy (rough estimation for UI)
-                            // We can just rely on the rates from context if possible, but stats are per-building.
+                            // Rough calculation of total performance for this group
+                            let groupIncome = 0;
+                            const groupResRates: Record<string, number> = {};
+
+                            buildingInstances.forEach(b => {
+                                // Re-calculate synergy/eff for this specific building (simplified)
+                                let clusterBonus = 0;
+                                let chainBonus = 0;
+                                let resBonus = 0;
+
+                                state.buildings.forEach(other => {
+                                    if (other.id === b.id || !other.isActive) return;
+                                    const dist = Math.sqrt(Math.pow(other.x - b.x, 2) + Math.pow(other.y - b.y, 2));
+                                    if (other.typeId === b.typeId && dist < SYNERGY_CONFIG.CLUSTER_RADIUS) clusterBonus += SYNERGY_CONFIG.BONUSES.CLUSTER_PER_BUILDING;
+                                    const chain = SYNERGY_CONFIG.CHAINS.find((c: any) => c.target === b.typeId && c.source === other.typeId);
+                                    if (chain && dist < SYNERGY_CONFIG.CHAIN_RADIUS) chainBonus += SYNERGY_CONFIG.BONUSES.CHAIN_PROCESSOR;
+                                    if (other.typeId === 'house' && dist < SYNERGY_CONFIG.RESIDENTIAL_RADIUS) {
+                                        if (gen.category === 'market') resBonus += SYNERGY_CONFIG.BONUSES.MARKET_PER_HOUSE;
+                                        if (gen.id === 'canteen') resBonus += SYNERGY_CONFIG.BONUSES.CANTEEN_PER_HOUSE;
+                                    }
+                                });
+
+                                const foremanMul = 1 + (state.workers.foreman || 0) * 0.2;
+                                const weatherMul = 1.0; // Simplify display
+                                const shiftMul = state.shiftActive ? 2.5 : 1.0;
+                                const upgradeBonus = 1 + (b.level - 1) * 0.5;
+
+                                // We don't have a perfect eff here without complex demand logic, but we can show "Potential"
+                                const boost = (1 + clusterBonus + chainBonus + resBonus) * upgradeBonus * foremanMul * weatherMul * shiftMul;
+
+                                groupIncome += gen.baseIncome * boost;
+                                if (gen.produces) {
+                                    Object.entries(gen.produces).forEach(([res, val]) => {
+                                        groupResRates[res] = (groupResRates[res] || 0) + (val * boost);
+                                    });
+                                }
+                                if (gen.consumes) {
+                                    Object.entries(gen.consumes).forEach(([res, val]) => {
+                                        groupResRates[res] = (groupResRates[res] || 0) - (val * boost);
+                                    });
+                                }
+                            });
+
                             return (
                                 <div key={gen.id} className="flex flex-col p-2 bg-secondary/10 rounded border border-white/5">
                                     <div className="flex justify-between items-center mb-1">
@@ -256,21 +297,20 @@ export const LeftPanel: React.FC = () => {
                                         <div className="text-[10px] font-mono font-bold bg-primary/20 px-1.5 rounded">x{count}</div>
                                     </div>
                                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 opacity-80">
-                                        {gen.baseIncome > 0 && (
-                                            <div className="text-[9px] text-green-500 font-bold">+{formatNumber(gen.baseIncome * count)} СК/с</div>
+                                        {groupIncome > 0 && (
+                                            <div className="text-[9px] text-green-500 font-bold">+{groupIncome.toFixed(1)} СК/с</div>
                                         )}
-                                        {gen.produces && Object.entries(gen.produces).map(([res, val]) => (
-                                            <div key={res} className="text-[9px] text-blue-400 font-bold">+{formatNumber(val * count)} {res}/с</div>
-                                        ))}
-                                        {gen.consumes && Object.entries(gen.consumes).map(([res, val]) => (
-                                            <div key={res} className="text-[9px] text-red-500 font-bold">-{formatNumber(val * count)} {res}/с</div>
+                                        {Object.entries(groupResRates).map(([res, val]) => (
+                                            <div key={res} className={cn("text-[9px] font-bold", val > 0 ? "text-blue-400" : "text-red-500")}>
+                                                {val > 0 ? "+" : ""}{val.toFixed(1)} {res}/с
+                                            </div>
                                         ))}
                                     </div>
-                                    {buildingInstances.length > 0 && (
-                                        <div className="mt-1 text-[8px] text-muted-foreground italic">
+                                    <div className="mt-1 flex justify-between items-center">
+                                        <div className="text-[8px] text-muted-foreground italic">
                                             Активно: {buildingInstances.length} / {count}
                                         </div>
-                                    )}
+                                    </div>
                                 </div>
                             );
                         })}
