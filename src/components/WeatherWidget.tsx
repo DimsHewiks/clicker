@@ -5,6 +5,8 @@ import { Card } from '@/components/ui/card';
 import { HappinessWidget } from './HappinessWidget';
 import { cn, formatNumber } from '@/lib/utils';
 import { Zap } from 'lucide-react';
+import type { ResourceType } from '@/types';
+
 
 export const WeatherWidget: React.FC = () => {
     const { state, incomePerSecond, resourceRates, toggleGodMode } = useGame();
@@ -76,7 +78,7 @@ export const WeatherWidget: React.FC = () => {
                         { id: 'food', icon: Apple, color: 'text-orange-400' },
                         { id: 'wood', icon: Hammer, color: 'text-amber-600' },
                         { id: 'stone', icon: Pickaxe, color: 'text-slate-400' }
-                    ].map(res => (
+                    ].filter(res => state.discoveredResources.includes(res.id as ResourceType)).map(res => (
                         <div key={res.id} className="flex items-center gap-2 px-1 xl:px-2 hover:bg-white/5 rounded-lg transition-colors cursor-default min-w-[60px] xl:min-w-[70px]" title={res.id.toUpperCase()}>
                             <res.icon className={cn("h-3.5 w-3.5 xl:h-4 xl:w-4", res.color)} />
                             <div className="flex flex-col -space-y-1">

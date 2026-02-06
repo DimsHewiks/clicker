@@ -4,8 +4,11 @@ class SoundManager {
 
     constructor() {
         try {
-            const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-            this.ctx = new AudioContext();
+            type AudioCtxCtor = typeof window.AudioContext;
+            const audioCtor: AudioCtxCtor | undefined =
+                window.AudioContext ||
+                (window as Window & { webkitAudioContext?: AudioCtxCtor }).webkitAudioContext;
+            this.ctx = audioCtor ? new audioCtor() : null;
         } catch (e) {
             console.warn('Web Audio API not supported');
         }

@@ -7,8 +7,8 @@ import {
     Users, Hammer, Flame, Anchor, ChefHat, Zap, Shield,
     ClipboardList, Pickaxe, Mountain, Bird
 } from 'lucide-react';
-import { ACHIEVEMENTS_CONFIG, WORKER_COSTS, GENERATORS_CONFIG } from '@/constants';
-import type { WorkerType } from '@/types';
+import { ACHIEVEMENTS_CONFIG, WORKER_COSTS, GENERATORS_CONFIG } from '@/config';
+import type { WorkerType, ResourceType, Generator } from '@/types';
 import { cn } from '@/lib/utils';
 
 const formatNumber = (num: number) => {
@@ -48,9 +48,31 @@ const workerIcons: Record<WorkerType, React.ElementType> = {
     head_chef: ChefHat
 };
 
+const encodeSave = (value: unknown) => {
+    const json = JSON.stringify(value);
+    const bytes = new TextEncoder().encode(json);
+    let binary = '';
+    bytes.forEach(b => { binary += String.fromCharCode(b); });
+    return btoa(binary);
+};
+
+const decodeSave = (data: string) => {
+    const binary = atob(data);
+    const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
+    const json = new TextDecoder().decode(bytes);
+    return JSON.parse(json);
+};
 
 
-// Optimization: Use cached values from building objects
+
+type BuildingStats = {
+    gen: Generator;
+    count: number;
+    activeCount: number;
+    income: number;
+    resRates: Record<ResourceType | string, number>;
+};
+
 export const LeftPanel: React.FC = React.memo(() => {
     const { state, workerCaps, resetGame, loadGame, hireWorker, fireWorker } = useGame();
 
@@ -63,19 +85,25 @@ export const LeftPanel: React.FC = React.memo(() => {
     };
 
     const handleExport = () => {
-        const data = btoa(JSON.stringify(state));
-        navigator.clipboard.writeText(data);
-        alert("Код сохранения скопирован в буфер обмена!");
+        try {
+            const data = encodeSave(state);
+            navigator.clipboard.writeText(data);
+            alert("Код сохранения скопирован в буфер обмена!");
+        } catch (e) {
+            alert("Не удалось создать код сохранения");
+            console.error(e);
+        }
     };
 
     const handleImport = () => {
         const data = prompt("Вставьте код сохранения:");
         if (data) {
             try {
-                const parsed = JSON.parse(atob(data));
+                const parsed = decodeSave(data);
                 loadGame(parsed);
             } catch (e) {
                 alert("Ошибка чтения сохранения");
+                console.error(e);
             }
         }
     };
@@ -144,8 +172,8 @@ export const LeftPanel: React.FC = React.memo(() => {
 
 
     // Optimization: Group buildings and calculate stats efficiently
-    const buildingStats = useMemo(() => {
-        const statsMap = new Map();
+    const buildingStats = useMemo<BuildingStats[]>(() => {
+        const statsMap = new Map<string, BuildingStats>();
 
         state.buildings.forEach(b => {
             if (!b.isPlaced) return;
@@ -158,11 +186,12 @@ export const LeftPanel: React.FC = React.memo(() => {
                     count: 0,
                     activeCount: 0,
                     income: 0,
-                    resRates: {} as Record<string, number>
+                    resRates: {}
                 });
             }
 
             const stats = statsMap.get(b.typeId);
+            if (!stats) return;
             stats.count++;
 
             const isActive = b.isActive && b.status !== 'lunch';
@@ -252,7 +281,7 @@ export const LeftPanel: React.FC = React.memo(() => {
                         <Hammer className="w-3.5 h-3.5" /> Статистика Объектов
                     </h3>
                     <div className="space-y-2">
-                        {buildingStats.map((stats: any) => {
+                        {buildingStats.map((stats) => {
                             const { gen, count, activeCount, income, resRates } = stats;
                             return (
                                 <div key={gen.id} className="flex flex-col p-2.5 bg-secondary/10 rounded border border-white/10 hover:border-white/20 transition-colors">

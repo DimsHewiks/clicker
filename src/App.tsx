@@ -3,7 +3,6 @@ import { WeatherWidget } from './components/WeatherWidget';
 import { ZoneMap } from './components/ZoneMap';
 import { GeneratorsPanel } from './components/GeneratorsPanel';
 import { LeftPanel } from './components/LeftPanel';
-import { ContractsPanel } from './components/ContractsPanel';
 
 function App() {
   return (
@@ -19,6 +18,7 @@ function App() {
               <LeftPanel />
             </div>
 
+
             {/* Center: Construction Site */}
             <div className="md:col-span-6 h-[40vh] md:h-[calc(100vh-72px)] flex flex-col relative">
               <ZoneMap />
@@ -29,9 +29,10 @@ function App() {
               <div className="flex-1 overflow-y-auto">
                 <GeneratorsPanel />
               </div>
-              <div className="h-1/3 border-t bg-[#0a0a0a]">
+              {/* TODO: Re-enable contracts later */}
+              {/* <div className="h-1/3 border-t bg-[#0a0a0a]">
                 <ContractsPanel />
-              </div>
+              </div> */}
             </div>
           </div>
         </main>

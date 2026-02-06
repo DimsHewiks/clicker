@@ -36,6 +36,14 @@ export interface Contract {
     reward: { type: 'balance' | ResourceType; amount: number };
 }
 
+export interface Notification {
+    id: string;
+    title?: string;
+    message: string;
+    timestamp: number;
+    read: boolean;
+}
+
 export interface Building {
     id: string; // Unique instance ID
     typeId: string; // Ref to Generator ID
@@ -52,6 +60,7 @@ export interface Building {
     synergyStats: { cluster: number; chain: number; res: number }; // New: Cached stats for UI
     isStriking?: boolean; // New: For happiness mechanic
     chapelTimer?: number; // New: Timer for Chapel cycle
+    createdAt: number; // Timestamp for tracking creation order
 }
 
 export interface GameState {
@@ -75,6 +84,8 @@ export interface GameState {
     happiness: number; // New: 0-100
     reputation: number; // New: global progression
     godMode: boolean;
+    notifications: Notification[];
+    unlockedCategories: string[];
 }
 
 export type GameAction =
@@ -97,7 +108,10 @@ export type GameAction =
     | { type: 'TOGGLE_BUILDING'; id: string }
     | { type: 'FIRE_WORKER'; workerType: WorkerType }
     | { type: 'CANCEL_PLACEMENT' }
-    | { type: 'TOGGLE_GOD_MODE' };
+    | { type: 'TOGGLE_GOD_MODE' }
+    | { type: 'ADD_NOTIFICATION'; notification: Notification }
+    | { type: 'MARK_NOTIFICATION_READ'; id: string }
+    | { type: 'UNLOCK_CATEGORY'; category: string };
 
 export const CONSTRUCTION_STAGES = [
     { id: 0, name: 'Swamp', threshold: 0 },

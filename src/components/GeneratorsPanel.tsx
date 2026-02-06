@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useGame } from '@/context/GameContext';
 import { formatNumber } from '@/lib/utils';
-import { GENERATORS_CONFIG } from '@/constants';
+import { GENERATORS_CONFIG } from '@/config';
 import type { ResourceType, Generator } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -102,7 +102,11 @@ const GeneratorCard = React.memo(({ gen, count, isEraLocked, canAfford, isPlacin
 
     return (
         <div
-            onClick={() => !isEraLocked && canAfford && (!isPlacing || isPlacing) && onBuy(gen.id)}
+            onClick={() => {
+                if (isEraLocked) return;
+                if (!godMode && !canAfford) return;
+                onBuy(gen.id);
+            }}
             className={cn(
                 "p-3 border rounded-lg transition-all select-none",
                 isEraLocked ? "bg-card/20 opacity-40 grayscale" : "bg-card hover:bg-accent/5 cursor-pointer hover:border-primary/50 active:scale-[0.98]",
@@ -160,12 +164,8 @@ const GeneratorCard = React.memo(({ gen, count, isEraLocked, canAfford, isPlacin
                     <Button
                         size="sm"
                         disabled={!godMode && (isEraLocked || !canAfford || isPlacing)}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onBuy(gen.id);
-                        }}
                         className={cn(
-                            "h-8 text-[10px] font-bold min-w-[70px]",
+                            "h-8 text-[10px] font-bold min-w-[70px] pointer-events-none",
                             isPlacing ? "bg-blue-600 animate-pulse" : (godMode || canAfford ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground grayscale")
                         )}
                     >
