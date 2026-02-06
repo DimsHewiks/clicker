@@ -4,9 +4,19 @@ import {
     GENERATORS_CONFIG,
     INITIAL_STATE,
     FOOD_CONSUMPTION_RATE,
+    FUEL_CONSUMPTION_RATE,
     WEATHER_MODIFIERS,
     SHIFT_MULTIPLIER,
-    WORKER_COSTS
+    WORKER_COSTS,
+    CANTEEN_DISTANCE_PENALTY,
+    CANTEEN_INFLUENCE_RADIUS,
+    GRID_SIZE,
+    INTEREST_BONUS,
+    MARKET_MORALE_PENALTY,
+    MARKET_MORALE_THRESHOLD,
+    getCellType,
+    getSuitabilityMultiplier,
+    isInterestCell
 } from '@/config';
 import { gameReducer } from './gameReducer';
 import { soundManager } from '../lib/sound';
@@ -41,7 +51,7 @@ const juiceListeners: ((x: number, y: number, text: string) => void)[] = [];
 
 export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [state, dispatch] = useReducer(gameReducer, INITIAL_STATE as GameState);
-    const lastTickRef = useRef<number>(Date.now());
+    const lastTickRef = useRef<number>(0);
     const stateRef = useRef(state);
 
     const { incomePerSecond, resourceRates } = useMemo(() => {
@@ -70,9 +80,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         let incomeTotal = 0;
-        const resRates: Record<ResourceType, number> = { food: 0, wood: 0, metal: 0, concrete: 0, sand: 0, stone: 0 };
+        const resRates: Record<ResourceType, number> = { food: 0, wood: 0, metal: 0, concrete: 0, sand: 0, stone: 0, fuel: 0, hides: 0, clay: 0 };
         const tWrk = Object.values(state.workers).reduce((a, b) => a + (b || 0), 0);
         resRates.food -= tWrk * FOOD_CONSUMPTION_RATE;
+        if (state.heatEnabled) resRates.fuel -= tWrk * FUEL_CONSUMPTION_RATE * (1 - state.fuelEfficiencyBonus);
 
         // Extra consumption rate during lunch
         const lunchWorkersCount = state.buildings
@@ -87,6 +98,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const foremanMul = 1 + (state.workers.foreman || 0) * 0.2;
         const weatherMul = WEATHER_MODIFIERS[state.weather] || 1.0;
         const shiftMul = state.shiftActive ? SHIFT_MULTIPLIER : 1.0;
+
+        const canteens = state.buildings.filter(b => b.typeId === 'canteen' && b.isPlaced && b.isActive);
 
         state.buildings.forEach(b => {
             const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
@@ -107,14 +120,30 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             const upgradeBonus = 1 + (b.level - 1) * 0.5;
+            const cellType = getCellType(b.x / GRID_SIZE, b.y / GRID_SIZE);
+            const suitabilityMul = getSuitabilityMultiplier(b.typeId, cellType);
+            const isInterest = isInterestCell(b.x / GRID_SIZE, b.y / GRID_SIZE, cellType);
+            const interestMul = isInterest && ((cellType === 'forest' && config.produces?.wood) || (cellType === 'stone' && config.produces?.stone))
+                ? (1 + INTEREST_BONUS)
+                : 1;
+            const hasNearbyCanteen = canteens.some(c => {
+                const dist = Math.sqrt(Math.pow(c.x - b.x, 2) + Math.pow(c.y - b.y, 2));
+                return dist <= CANTEEN_INFLUENCE_RADIUS;
+            });
+            const canteenMul = (config.category === 'production' || config.category === 'market')
+                ? (hasNearbyCanteen ? 1 : (1 - CANTEEN_DISTANCE_PENALTY))
+                : 1;
+            const marketMoraleMul = state.marketMoralePenaltyEnabled && config.category === 'market' && state.happiness < MARKET_MORALE_THRESHOLD
+                ? (1 - MARKET_MORALE_PENALTY)
+                : 1;
             // Use cached synergyBonus in memo too
-            const totalBoost = eff * (1 + b.synergyBonus) * upgradeBonus * foremanMul * weatherMul * shiftMul;
+            const totalBoost = eff * (1 + b.synergyBonus) * upgradeBonus * foremanMul * weatherMul * shiftMul * suitabilityMul * canteenMul * marketMoraleMul;
 
             incomeTotal += config.baseIncome * totalBoost;
 
             if (config.produces && eff > 0) {
                 Object.entries(config.produces).forEach(([rType, val]) => {
-                    resRates[rType as ResourceType] += val * totalBoost;
+                    resRates[rType as ResourceType] += val * totalBoost * interestMul;
                 });
             }
 
@@ -126,7 +155,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         return { incomePerSecond: incomeTotal, resourceRates: resRates };
-    }, [state.buildings, state.workers, state.weather, state.shiftActive]); // Optimized dependencies
+    }, [state.buildings, state.workers, state.weather, state.shiftActive, state.resources, state.heatEnabled, state.fuelEfficiencyBonus, state.marketMoralePenaltyEnabled, state.happiness]); // Optimized dependencies
 
     const workerCaps = useMemo(() => {
         const total = Object.values(state.workers || {}).reduce((a, b) => a + (b || 0), 0);
@@ -219,7 +248,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             activateShift: () => dispatch({ type: 'ACTIVATE_SHIFT' }),
             setWeather: (weather) => dispatch({ type: 'SET_WEATHER', weather }),
             resetGame: () => {
-                if (confirm("Reset ALL progress?")) {
+                if (confirm("Сбросить весь прогресс?")) {
                     localStorage.removeItem('story-imperia-save');
                     dispatch({ type: 'RESET_GAME' });
                 }

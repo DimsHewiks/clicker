@@ -3,6 +3,7 @@ import { WeatherWidget } from './components/WeatherWidget';
 import { ZoneMap } from './components/ZoneMap';
 import { GeneratorsPanel } from './components/GeneratorsPanel';
 import { LeftPanel } from './components/LeftPanel';
+import { NotificationDrawer } from './components/NotificationDrawer';
 
 function App() {
   return (
@@ -14,14 +15,17 @@ function App() {
           <div className="h-full grid grid-cols-1 md:grid-cols-12 gap-0 md:divide-x divide-y md:divide-y-0">
             {/* Left Panel: Balance & Stats */}
             <div className="md:col-span-3 h-[30vh] md:h-[calc(100vh-72px)] overflow-y-auto">
-              <span className="sr-only">Stats Panel</span>
+              <span className="sr-only">Панель статистики</span>
               <LeftPanel />
             </div>
 
 
             {/* Center: Construction Site */}
             <div className="md:col-span-6 h-[40vh] md:h-[calc(100vh-72px)] flex flex-col relative">
-              <ZoneMap />
+              <div className="flex-1 relative">
+                <ZoneMap />
+              </div>
+              <NotificationDrawer />
             </div>
 
             {/* Right Panel: Generators & Contracts */}

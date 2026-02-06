@@ -1,8 +1,16 @@
 export const FOOD_CONSUMPTION_RATE = 0.4;
+export const FUEL_CONSUMPTION_RATE = 0.05;
+export const HEAT_GAIN_RATE = 6;
+export const HEAT_DECAY_RATE = 8;
+export const HEAT_PENALTY = 0.1;
+export const MARKET_MORALE_THRESHOLD = 50;
+export const MARKET_MORALE_PENALTY = 0.05;
 
 export const LUNCH_INTERVAL = 60;
 export const WALK_SPEED = 40;
 export const GRID_SIZE = 40;
+export const MAP_RADIUS = 8;
+export const MAP_SIZE = (MAP_RADIUS * 2 + 1) * GRID_SIZE;
 
 export const ERAS = [
     { id: 0, name: 'Геология: Дерево и Камень' },

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useGame } from '@/context/GameContext';
-import { Sun, CloudRain, Cloud, Bus, Timer, Coins, Apple, Hammer, Pickaxe } from 'lucide-react';
+import { Sun, CloudRain, Cloud, Bus, Timer, Coins, Apple, Hammer, Pickaxe, Flame, Shield, Mountain } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { HappinessWidget } from './HappinessWidget';
 import { cn, formatNumber } from '@/lib/utils';
@@ -40,6 +40,18 @@ export const WeatherWidget: React.FC = () => {
         );
     };
 
+    const resourceLabels: Record<ResourceType, string> = {
+        food: 'Еда',
+        wood: 'Дерево',
+        stone: 'Камень',
+        metal: 'Металл',
+        sand: 'Песок',
+        concrete: 'Бетон',
+        fuel: 'Топливо',
+        hides: 'Шкуры',
+        clay: 'Глина'
+    };
+
     return (
         <Card className="py-1 px-4 flex flex-col xl:flex-row justify-between items-center gap-2 xl:gap-4 bg-[#0d0f14]/90 backdrop-blur-3xl sticky top-0 z-50 border-b border-white/5 h-auto xl:h-[72px] shadow-[0_4px_30px_rgba(0,0,0,0.8)] rounded-none">
             {/* Left: Weather & Balance */}
@@ -77,9 +89,12 @@ export const WeatherWidget: React.FC = () => {
                     {[
                         { id: 'food', icon: Apple, color: 'text-orange-400' },
                         { id: 'wood', icon: Hammer, color: 'text-amber-600' },
-                        { id: 'stone', icon: Pickaxe, color: 'text-slate-400' }
+                        { id: 'stone', icon: Pickaxe, color: 'text-slate-400' },
+                        { id: 'fuel', icon: Flame, color: 'text-amber-400' },
+                        { id: 'hides', icon: Shield, color: 'text-yellow-200' },
+                        { id: 'clay', icon: Mountain, color: 'text-orange-300' }
                     ].filter(res => state.discoveredResources.includes(res.id as ResourceType)).map(res => (
-                        <div key={res.id} className="flex items-center gap-2 px-1 xl:px-2 hover:bg-white/5 rounded-lg transition-colors cursor-default min-w-[60px] xl:min-w-[70px]" title={res.id.toUpperCase()}>
+                        <div key={res.id} className="flex items-center gap-2 px-1 xl:px-2 hover:bg-white/5 rounded-lg transition-colors cursor-default min-w-[60px] xl:min-w-[70px]" title={resourceLabels[res.id as ResourceType]}>
                             <res.icon className={cn("h-3.5 w-3.5 xl:h-4 xl:w-4", res.color)} />
                             <div className="flex flex-col -space-y-1">
                                 <span className="text-[11px] xl:text-[12px] font-black text-white leading-none tabular-nums">{formatNumber(state.resources[res.id as keyof typeof state.resources] || 0)}</span>
@@ -88,6 +103,16 @@ export const WeatherWidget: React.FC = () => {
                         </div>
                     ))}
                 </div>
+
+                {state.heatEnabled && (
+                    <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-orange-500/10 rounded-2xl border border-orange-500/20 h-[44px] xl:h-[48px]">
+                        <Flame className="h-3.5 w-3.5 xl:h-4 xl:w-4 text-orange-400" />
+                        <div className="flex flex-col -space-y-1">
+                            <span className="text-[10px] xl:text-[11px] font-black text-orange-100 uppercase tracking-wider">Тепло</span>
+                            <span className="text-[11px] xl:text-[12px] font-black text-white tabular-nums">{Math.round(state.heat)}%</span>
+                        </div>
+                    </div>
+                )}
 
                 {Object.values(state.workers).some(v => v > 0) && <HappinessWidget />}
             </div>

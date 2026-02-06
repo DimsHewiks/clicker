@@ -1,6 +1,7 @@
 export type WeatherType = 'sun' | 'rain' | 'neutral';
-export type ResourceType = 'food' | 'wood' | 'metal' | 'concrete' | 'sand' | 'stone';
+export type ResourceType = 'food' | 'wood' | 'metal' | 'concrete' | 'sand' | 'stone' | 'fuel' | 'hides' | 'clay';
 export type WorkerType = 'lumberjack' | 'welder' | 'fisherman' | 'cook' | 'driver' | 'engineer' | 'guard' | 'foreman' | 'head_chef' | 'miner' | 'stonecutter' | 'hunter';
+export type CellType = 'water' | 'forest' | 'stone' | 'swamp' | 'neutral';
 
 export interface Generator {
     id: string;
@@ -42,7 +43,22 @@ export interface Notification {
     message: string;
     timestamp: number;
     read: boolean;
+    rewards?: Reward[];
 }
+
+export interface Letter {
+    id: string;
+    title?: string;
+    message: string;
+    timestamp: number;
+    read: boolean;
+    rewards?: Reward[];
+}
+
+export type Reward =
+    | { kind: 'tech'; id: string }
+    | { kind: 'category'; id: string; label: string }
+    | { kind: 'boost'; label: string };
 
 export interface Building {
     id: string; // Unique instance ID
@@ -85,7 +101,14 @@ export interface GameState {
     reputation: number; // New: global progression
     godMode: boolean;
     notifications: Notification[];
+    letters: Letter[];
     unlockedCategories: string[];
+    triggeredEvents: string[];
+    happinessBonus: number;
+    fuelEfficiencyBonus: number;
+    marketMoralePenaltyEnabled: boolean;
+    heatEnabled: boolean;
+    heat: number;
 }
 
 export type GameAction =
@@ -110,7 +133,9 @@ export type GameAction =
     | { type: 'CANCEL_PLACEMENT' }
     | { type: 'TOGGLE_GOD_MODE' }
     | { type: 'ADD_NOTIFICATION'; notification: Notification }
+    | { type: 'ADD_LETTER'; letter: Letter }
     | { type: 'MARK_NOTIFICATION_READ'; id: string }
+    | { type: 'MARK_LETTER_READ'; id: string }
     | { type: 'UNLOCK_CATEGORY'; category: string };
 
 export const CONSTRUCTION_STAGES = [

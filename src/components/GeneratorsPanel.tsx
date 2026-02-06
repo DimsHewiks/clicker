@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useGame } from '@/context/GameContext';
 import { formatNumber } from '@/lib/utils';
 import { GENERATORS_CONFIG } from '@/config';
@@ -9,6 +9,7 @@ import { Lock, FlaskConical, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type TabType = 'production' | 'market' | 'residential' | 'optimization';
+const TABS: TabType[] = ['production', 'market', 'residential', 'optimization'];
 
 const ResearchCard = React.memo(({ gen, isEraLocked, canAfford, preReqBuilt, onResearch, godMode }: {
     gen: Generator,
@@ -146,6 +147,9 @@ const GeneratorCard = React.memo(({ gen, count, isEraLocked, canAfford, isPlacin
                                     {gen.produces?.metal && <span>Металл: +{formatNumber(gen.produces.metal as number)}/с</span>}
                                     {gen.produces?.food && <span>Еда: +{formatNumber(gen.produces.food as number)}/с</span>}
                                     {gen.produces?.stone && <span>Камень: +{formatNumber(gen.produces.stone as number)}/с</span>}
+                                    {gen.produces?.fuel && <span>Топливо: +{formatNumber(gen.produces.fuel as number)}/с</span>}
+                                    {gen.produces?.hides && <span>Шкуры: +{formatNumber(gen.produces.hides as number)}/с</span>}
+                                    {gen.produces?.clay && <span>Глина: +{formatNumber(gen.produces.clay as number)}/с</span>}
                                 </>
                             )}
                         </div>
@@ -169,7 +173,7 @@ const GeneratorCard = React.memo(({ gen, count, isEraLocked, canAfford, isPlacin
                             isPlacing ? "bg-blue-600 animate-pulse" : (godMode || canAfford ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground grayscale")
                         )}
                     >
-                        {isPlacing ? "PLACING..." : (godMode ? "FREE" : `${formatNumber(currentCost)} СК`)}
+                        {isPlacing ? "УСТАНОВКА..." : (godMode ? "БЕСПЛАТНО" : `${formatNumber(currentCost)} СК`)}
                     </Button>
                 </div>
             </div>
@@ -202,8 +206,16 @@ const GeneratorCard = React.memo(({ gen, count, isEraLocked, canAfford, isPlacin
 
 export const GeneratorsPanel: React.FC = () => {
     const { state, buyGenerator, researchTech } = useGame();
-    const { generators, unlockedTechs, constructionStage, godMode } = state;
+    const { generators, unlockedTechs, constructionStage, godMode, unlockedCategories } = state;
     const [activeTab, setActiveTab] = useState<TabType>('production');
+    const isTabUnlocked = (tab: TabType) => godMode || unlockedCategories.includes(tab);
+
+    useEffect(() => {
+        if (!isTabUnlocked(activeTab)) {
+            const fallback = TABS.find(tab => isTabUnlocked(tab)) || 'production';
+            setActiveTab(fallback);
+        }
+    }, [activeTab, unlockedCategories, godMode]);
 
     const availableGens = useMemo(() => {
         return GENERATORS_CONFIG.filter(g => g.category === activeTab);
@@ -213,19 +225,23 @@ export const GeneratorsPanel: React.FC = () => {
         <div className="flex flex-col h-full bg-[#050505]">
             {/* Tabs */}
             <div className="flex border-b border-white/5 bg-[#0a0a0a]">
-                {(['production', 'market', 'residential', 'optimization'] as TabType[]).map(tab => (
+                {TABS.filter(tab => isTabUnlocked(tab)).map(tab => {
+                    return (
                     <button
                         key={tab}
-                        onClick={() => setActiveTab(tab)}
+                        onClick={() => {
+                            setActiveTab(tab);
+                        }}
                         className={cn(
                             "flex-1 px-4 py-3 text-[9px] font-black uppercase tracking-widest transition-all relative overflow-hidden",
-                            activeTab === tab ? "text-primary" : "text-white/20 hover:text-white/40"
+                            activeTab === tab ? "text-primary" : "text-white/40 hover:text-white/70"
                         )}
                     >
                         {tab === 'optimization' ? 'Оптимизация' : tab === 'production' ? 'ПРОИЗВОДСТВО' : tab === 'market' ? 'БИЗНЕС' : 'ЖИЛЬЕ'}
                         {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary shadow-[0_-4px_10px_rgba(255,255,255,0.2)]" />}
                     </button>
-                ))}
+                    );
+                })}
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">

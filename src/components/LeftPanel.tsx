@@ -317,16 +317,16 @@ export const LeftPanel: React.FC = React.memo(() => {
                 <div className="pt-6 space-y-3 pb-4">
                     <div className="grid grid-cols-2 gap-2">
                         <Button variant="outline" size="sm" className="h-8 gap-2 text-[10px] uppercase font-black tracking-wide" onClick={handleExport}>
-                            <Download className="w-3.5 h-3.5" /> Export
+                            <Download className="w-3.5 h-3.5" /> Экспорт
                         </Button>
                         <Button variant="outline" size="sm" className="h-8 gap-2 text-[10px] uppercase font-black tracking-wide" onClick={handleImport}>
-                            <Upload className="w-3.5 h-3.5" /> Import
+                            <Upload className="w-3.5 h-3.5" /> Импорт
                         </Button>
                     </div>
                     <Button variant="ghost" size="sm" className="w-full h-8 gap-2 text-[10px] uppercase font-black tracking-wide text-destructive hover:text-white hover:bg-destructive transition-all" onClick={() => {
                         resetGame();
                     }}>
-                        <Trash2 className="w-3.5 h-3.5" /> Reset Data
+                        <Trash2 className="w-3.5 h-3.5" /> Сброс данных
                     </Button>
                 </div>
             </CardContent>

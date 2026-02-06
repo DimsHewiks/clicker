@@ -1,16 +1,27 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { useGame } from '@/context/GameContext';
 import { motion } from 'framer-motion';
-import { Waves } from 'lucide-react';
-import { GRID_SIZE, GENERATORS_CONFIG, SYNERGY_CONFIG, CHAPEL_RADIUS } from '@/config';
+import { Waves, Leaf, Mountain } from 'lucide-react';
+import { GRID_SIZE, GENERATORS_CONFIG, SYNERGY_CONFIG, CHAPEL_RADIUS, MAP_RADIUS, MAP_SIZE, getCellType, isInterestCell, CANTEEN_INFLUENCE_RADIUS, HOUSE_NUISANCE_RADIUS } from '@/config';
 import { BuildingNode } from './zone/BuildingNode';
+import type { CellType } from '@/types';
 
 type SynergyLine = { id: string; x1: number; y1: number; x2: number; y2: number; color: string };
 type OptimizationLine = { id: string; path: string };
 
-const isWaterCell = (gx: number, gy: number) => {
-    const val = (Math.sin(gx * 0.4) * Math.cos(gy * 0.4));
-    return val > 0.7;
+const getCellColor = (cellType: CellType) => {
+    switch (cellType) {
+        case 'forest':
+            return 'rgba(34, 197, 94, 0.12)';
+        case 'stone':
+            return 'rgba(148, 163, 184, 0.12)';
+        case 'swamp':
+            return 'rgba(163, 230, 53, 0.1)';
+        case 'water':
+            return 'rgba(59, 130, 246, 0.12)';
+        default:
+            return 'transparent';
+    }
 };
 
 
@@ -18,20 +29,28 @@ export const ZoneMap: React.FC = () => {
     const { state, click, placeBuilding, moveBuilding, upgradeBuilding, toggleBuilding } = useGame();
     const [mouseGrid, setMouseGrid] = useState({ gx: 0, gy: 0 });
     const containerRef = useRef<HTMLDivElement>(null);
+    const mapBounds = MAP_RADIUS * GRID_SIZE;
+    const clampToBounds = (val: number) => Math.max(-mapBounds, Math.min(mapBounds, val));
 
     const handleMouseMove = (e: React.MouseEvent) => {
         if (!containerRef.current) return;
         const rect = containerRef.current.getBoundingClientRect();
         const gx = Math.round((e.clientX - rect.left - rect.width / 2) / GRID_SIZE) * GRID_SIZE;
         const gy = Math.round((e.clientY - rect.top - rect.height / 2) / GRID_SIZE) * GRID_SIZE;
-        setMouseGrid({ gx, gy });
+        setMouseGrid({ gx: clampToBounds(gx), gy: clampToBounds(gy) });
     };
 
     const gridCells = useMemo(() => {
-        const cells: { x: number; y: number }[] = [];
-        for (let x = -8; x <= 8; x++) {
-            for (let y = -8; y <= 8; y++) {
-                if (isWaterCell(x, y)) cells.push({ x: x * GRID_SIZE, y: y * GRID_SIZE });
+        const cells: { x: number; y: number; type: CellType; interest: boolean }[] = [];
+        for (let x = -MAP_RADIUS; x <= MAP_RADIUS; x++) {
+            for (let y = -MAP_RADIUS; y <= MAP_RADIUS; y++) {
+                const cellType = getCellType(x, y);
+                cells.push({
+                    x: x * GRID_SIZE,
+                    y: y * GRID_SIZE,
+                    type: cellType,
+                    interest: isInterestCell(x, y, cellType)
+                });
             }
         }
         return cells;
@@ -96,31 +115,60 @@ export const ZoneMap: React.FC = () => {
         , [state.placingBuildingTypeId]);
 
     return (
-        <div ref={containerRef} className="relative w-full h-full bg-[#0d0f14] overflow-hidden select-none" onMouseMove={handleMouseMove} onClick={() => {
-            if (state.placingBuildingTypeId) {
-                const isWaterBuilding = placingConfig?.terrain === 'water';
-                const isWater = isWaterCell(mouseGrid.gx / GRID_SIZE, mouseGrid.gy / GRID_SIZE);
+        <div className="relative w-full h-full bg-[#0d0f14] flex items-center justify-center">
+            <div
+                ref={containerRef}
+                className="relative overflow-hidden select-none border border-white/5 shadow-[0_0_20px_rgba(0,0,0,0.4)] bg-[#0d0f14]"
+                style={{ width: MAP_SIZE, height: MAP_SIZE }}
+                onMouseMove={handleMouseMove}
+                onClick={() => {
+                    if (state.placingBuildingTypeId) {
+                        const isWaterBuilding = placingConfig?.terrain === 'water';
+                        const isWater = getCellType(mouseGrid.gx / GRID_SIZE, mouseGrid.gy / GRID_SIZE) === 'water';
 
-                if (isWaterBuilding && !isWater) return;
-                if (!isWaterBuilding && isWater) return;
+                        if (isWaterBuilding && !isWater) return;
+                        if (!isWaterBuilding && isWater) return;
 
-                placeBuilding(mouseGrid.gx, mouseGrid.gy);
-            }
-            else click();
-        }}>
-            <div className="absolute inset-0 opacity-[0.05]" style={{
-                backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)',
-                backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`, backgroundPosition: 'center center'
-            }} />
+                        placeBuilding(mouseGrid.gx, mouseGrid.gy);
+                    }
+                    else click();
+                }}
+            >
+                <div className="absolute inset-0 opacity-[0.05]" style={{
+                    backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)',
+                    backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`, backgroundPosition: 'center center'
+                }} />
 
             {/* Visual Layers */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="relative w-0 h-0 overflow-visible">
-                    {/* Lakes */}
                     {gridCells.map((c, i) => (
-                        <div key={i} className="absolute bg-blue-600/20 border border-blue-400/10 flex items-center justify-center"
-                            style={{ width: GRID_SIZE, height: GRID_SIZE, left: c.x - GRID_SIZE / 2, top: c.y - GRID_SIZE / 2 }}>
-                            <Waves className="w-4 h-4 text-blue-400/20" />
+                        <div
+                            key={i}
+                            className="absolute border border-white/5"
+                            style={{
+                                width: GRID_SIZE,
+                                height: GRID_SIZE,
+                                left: c.x - GRID_SIZE / 2,
+                                top: c.y - GRID_SIZE / 2,
+                                backgroundColor: getCellColor(c.type)
+                            }}
+                        >
+                            {c.type === 'water' && (
+                                <div className="w-full h-full flex items-center justify-center">
+                                    <Waves className="w-4 h-4 text-blue-400/20" />
+                                </div>
+                            )}
+                            {c.interest && c.type === 'forest' && (
+                                <div className="absolute bottom-1 right-1 text-emerald-400/70">
+                                    <Leaf className="w-3 h-3" />
+                                </div>
+                            )}
+                            {c.interest && c.type === 'stone' && (
+                                <div className="absolute bottom-1 right-1 text-slate-300/80">
+                                    <Mountain className="w-3 h-3" />
+                                </div>
+                            )}
                         </div>
                     ))}
 
@@ -169,7 +217,7 @@ export const ZoneMap: React.FC = () => {
                             key={b.id}
                             building={b}
                             allBuildings={state.buildings}
-                            onMove={(gx, gy) => moveBuilding(b.id, gx, gy)}
+                            onMove={(gx, gy) => moveBuilding(b.id, clampToBounds(gx), clampToBounds(gy))}
                             onUpgrade={() => upgradeBuilding(b.id)}
                             onToggle={() => toggleBuilding(b.id)}
                         />
@@ -191,12 +239,37 @@ export const ZoneMap: React.FC = () => {
                                     <div className="text-[10px] font-black text-purple-400/40 uppercase tracking-widest">Зона Оптимизации</div>
                                 </div>
                             )}
+                            {placingConfig?.id === 'canteen' && (
+                                <div className="absolute border-2 border-blue-400/30 bg-blue-400/5 rounded-full animate-pulse"
+                                    style={{
+                                        width: CANTEEN_INFLUENCE_RADIUS * 2,
+                                        height: CANTEEN_INFLUENCE_RADIUS * 2,
+                                        left: mouseGrid.gx,
+                                        top: mouseGrid.gy,
+                                        marginLeft: -CANTEEN_INFLUENCE_RADIUS,
+                                        marginTop: -CANTEEN_INFLUENCE_RADIUS
+                                    }}
+                                />
+                            )}
+                            {placingConfig?.id === 'house' && (
+                                <div className="absolute border-2 border-red-400/30 bg-red-400/5 rounded-full animate-pulse"
+                                    style={{
+                                        width: HOUSE_NUISANCE_RADIUS * 2,
+                                        height: HOUSE_NUISANCE_RADIUS * 2,
+                                        left: mouseGrid.gx,
+                                        top: mouseGrid.gy,
+                                        marginLeft: -HOUSE_NUISANCE_RADIUS,
+                                        marginTop: -HOUSE_NUISANCE_RADIUS
+                                    }}
+                                />
+                            )}
                             <div className="absolute flex items-center justify-center w-10 h-10 border-2 border-blue-500 border-dashed rounded bg-blue-500/10 animate-pulse pointer-events-none"
                                 style={{ left: mouseGrid.gx, top: mouseGrid.gy, marginLeft: -20, marginTop: -20 }} />
                         </>
                     )}
                 </div>
             </div>
+        </div>
         </div>
     );
 };

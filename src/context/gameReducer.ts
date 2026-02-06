@@ -2,18 +2,34 @@ import {
     CHAPEL_LUNCH_DURATION,
     CHAPEL_RADIUS,
     CHAPEL_WORK_DURATION,
+    CANTEEN_DISTANCE_PENALTY,
+    CANTEEN_INFLUENCE_RADIUS,
     FOOD_CONSUMPTION_RATE,
+    FUEL_CONSUMPTION_RATE,
     GENERATORS_CONFIG,
+    GRID_SIZE,
+    HEAT_DECAY_RATE,
+    HEAT_GAIN_RATE,
+    HEAT_PENALTY,
+    HOUSE_NUISANCE_HAPPINESS_PENALTY,
+    HOUSE_NUISANCE_RADIUS,
     INITIAL_STATE,
+    INTEREST_BONUS,
     LUNCH_INTERVAL,
+    MARKET_MORALE_PENALTY,
+    MARKET_MORALE_THRESHOLD,
     SHIFT_COOLDOWN,
     SHIFT_DURATION,
     SHIFT_MULTIPLIER,
     SYNERGY_CONFIG,
+    getCellType,
+    getSuitabilityMultiplier,
+    isInterestCell,
     WEATHER_MODIFIERS,
     WORKER_COSTS,
     WALK_SPEED
 } from '@/config';
+import { applyStoryEvents } from '@/config/events';
 import type { Building, GameAction, GameState, ResourceType, WeatherType, WorkerType } from '@/types';
 
 export const calculateSynergies = (building: Building, allBuildings: Building[]): { bonus: number; stats: { cluster: number; chain: number; res: number } } => {
@@ -238,13 +254,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
         case 'TICK': {
             const { dt } = action;
-            let nRes = { ...state.resources };
-            let nWrk = { ...state.workers };
-            let nDiscovered = [...state.discoveredResources];
+            const nRes = { ...state.resources };
+            const nWrk = { ...state.workers };
+            const nDiscovered = [...state.discoveredResources];
             const tWrk = Object.values(state.workers).reduce((a, b) => a + (b || 0), 0);
 
             if (!state.godMode) {
                 nRes.food -= tWrk * FOOD_CONSUMPTION_RATE * dt;
+                if (state.heatEnabled) {
+                    nRes.fuel -= tWrk * FUEL_CONSUMPTION_RATE * (1 - state.fuelEfficiencyBonus) * dt;
+                }
 
                 const lunchWorkersCount = state.buildings
                     .filter(b => b.status === 'lunch' && b.isPlaced && b.isActive)
@@ -258,6 +277,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
             const isStarving = nRes.food <= 0;
             if (nRes.food < 0) { nRes.food = 0; }
+            if (nRes.fuel < 0) { nRes.fuel = 0; }
 
             const houseCount = state.generators.house || 0;
             const housingCapacity = 5 + (houseCount * 5);
@@ -275,7 +295,24 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             const activeTypeIds = new Set(state.buildings.filter(b => b.isPlaced && b.isActive).map(b => b.typeId));
             happinessDelta += activeTypeIds.size * 0.1;
 
-            let nHappiness = Math.max(0, Math.min(100, state.happiness + happinessDelta * dt));
+            const houses = state.buildings.filter(b => b.typeId === 'house' && b.isPlaced);
+            const productionBuildings = state.buildings.filter(b => {
+                const config = GENERATORS_CONFIG.find(g => g.id === b.typeId);
+                return config?.category === 'production' && b.isPlaced;
+            });
+            const houseNuisanceCount = houses.filter(house =>
+                productionBuildings.some(prod => {
+                    const dist = Math.sqrt(Math.pow(prod.x - house.x, 2) + Math.pow(prod.y - house.y, 2));
+                    return dist <= HOUSE_NUISANCE_RADIUS;
+                })
+            ).length;
+            if (houseNuisanceCount > 0) {
+                happinessDelta -= houseNuisanceCount * HOUSE_NUISANCE_HAPPINESS_PENALTY;
+            }
+
+            const baseHappiness = state.happiness - state.happinessBonus;
+            const nextBaseHappiness = baseHappiness + happinessDelta * dt;
+            let nHappiness = Math.max(0, Math.min(100, nextBaseHappiness + state.happinessBonus));
             let nReputation = state.reputation;
             if (nHappiness > 80) nReputation += 0.01 * dt;
 
@@ -408,6 +445,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             const foremanMul = 1 + (state.workers.foreman || 0) * 0.2;
             const weatherMul = WEATHER_MODIFIERS[state.weather] || 1.0;
             const shiftMul = state.shiftActive ? SHIFT_MULTIPLIER : 1.0;
+            const heatMul = state.heatEnabled && state.heat < 25 ? (1 - HEAT_PENALTY) : 1.0;
 
             blds.forEach(b => {
                 const config = getCachedConfig(b.typeId);
@@ -433,19 +471,35 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
                 }
 
                 const upgradeBonus = 1 + (b.level - 1) * 0.5;
+                const cellType = getCellType(b.x / GRID_SIZE, b.y / GRID_SIZE);
+                const suitabilityMul = getSuitabilityMultiplier(b.typeId, cellType);
+                const isInterest = isInterestCell(b.x / GRID_SIZE, b.y / GRID_SIZE, cellType);
+                const interestMul = isInterest && ((cellType === 'forest' && config.produces?.wood) || (cellType === 'stone' && config.produces?.stone))
+                    ? (1 + INTEREST_BONUS)
+                    : 1;
+                const hasNearbyCanteen = canteens.some(c => {
+                    const dist = Math.sqrt(Math.pow(c.x - b.x, 2) + Math.pow(c.y - b.y, 2));
+                    return dist <= CANTEEN_INFLUENCE_RADIUS;
+                });
+                const canteenMul = (config.category === 'production' || config.category === 'market')
+                    ? (hasNearbyCanteen ? 1 : (1 - CANTEEN_DISTANCE_PENALTY))
+                    : 1;
+                const marketMoraleMul = state.marketMoralePenaltyEnabled && config.category === 'market' && nHappiness < MARKET_MORALE_THRESHOLD
+                    ? (1 - MARKET_MORALE_PENALTY)
+                    : 1;
 
                 let critMul = 1.0;
                 if (nHappiness >= 90 && Math.random() < 0.05) {
                     critMul = 2.0;
                 }
 
-                const totalBoost = eff * (1 + b.synergyBonus) * upgradeBonus * foremanMul * weatherMul * shiftMul * critMul;
+                const totalBoost = eff * (1 + b.synergyBonus) * upgradeBonus * foremanMul * weatherMul * shiftMul * critMul * suitabilityMul * canteenMul * heatMul * marketMoraleMul;
 
                 incomeTotal += config.baseIncome * totalBoost * dt;
 
                 if (config.produces && eff > 0) {
                     Object.entries(config.produces).forEach(([rType, val]) => {
-                        const amount = (val as number) * totalBoost * dt;
+                        const amount = (val as number) * totalBoost * interestMul * dt;
                         nRes[rType as ResourceType] += amount;
                         if (!nDiscovered.includes(rType as ResourceType)) nDiscovered.push(rType as ResourceType);
                     });
@@ -459,6 +513,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
                 if (state.discoveredResources.includes('metal')) possibleRes.push('metal');
                 if (state.discoveredResources.includes('sand')) possibleRes.push('sand');
                 if (state.discoveredResources.includes('concrete')) possibleRes.push('concrete');
+                if (state.discoveredResources.includes('fuel')) possibleRes.push('fuel');
+                if (state.discoveredResources.includes('hides')) possibleRes.push('hides');
+                if (state.discoveredResources.includes('clay')) possibleRes.push('clay');
 
                 const rType = possibleRes[Math.floor(Math.random() * possibleRes.length)];
                 const reqAmount = 100 + Math.floor(Math.random() * 9) * 100;
@@ -488,22 +545,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
                 nShiftTimer = 0;
             }
 
-            let newNotifications = [...state.notifications];
-            let newUnlockedCategories = [...state.unlockedCategories];
-
-            if (!state.unlockedCategories.includes('market') &&
-                nRes.wood >= 1000 &&
-                nRes.stone >= 500) {
-                newUnlockedCategories.push('market');
-                newNotifications.push({
-                    id: `market-unlock-${Date.now()}`,
-                    message: `Найдено прибитым к стволу дуба у лесопилки\n«Ты рубишь дерево. Но не продаёшь.\nСколько ещё будешь копить щепки?\nРынок ждёт у восточных ворот.\n— Наблюдатель»`,
-                    timestamp: Date.now(),
-                    read: false
-                });
-            }
-
-            return {
+            const nextState = {
                 ...state,
                 balance: state.balance + incomeTotal,
                 resources: nRes,
@@ -517,10 +559,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
                 shiftTimer: nShiftTimer,
                 happiness: nHappiness,
                 reputation: nReputation,
-                notifications: newNotifications,
-                unlockedCategories: newUnlockedCategories,
                 lastSaveTime: Date.now()
             };
+            let nHeat = state.heat;
+            if (state.heatEnabled) {
+                if (nRes.fuel > 0) nHeat = Math.min(100, nHeat + HEAT_GAIN_RATE * dt);
+                else nHeat = Math.max(0, nHeat - HEAT_DECAY_RATE * dt);
+            }
+
+            return applyStoryEvents({
+                ...nextState,
+                heat: nHeat
+            });
         }
 
         case 'ACTIVATE_SHIFT':
@@ -554,11 +604,21 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
         case 'LOAD_GAME': {
             const loadedState = { ...state, ...action.state };
+            loadedState.resources = { ...INITIAL_STATE.resources, ...loadedState.resources };
             loadedState.buildings = (loadedState.buildings || []).map(b => {
                 if (b.synergyBonus !== undefined) return b;
                 const { bonus, stats } = calculateSynergies(b, loadedState.buildings);
                 return { ...b, synergyBonus: bonus, synergyStats: stats };
             });
+            loadedState.notifications = loadedState.notifications || [];
+            loadedState.letters = loadedState.letters || [];
+            loadedState.unlockedCategories = loadedState.unlockedCategories || [];
+            loadedState.triggeredEvents = loadedState.triggeredEvents || [];
+            loadedState.happinessBonus = loadedState.happinessBonus || 0;
+            loadedState.fuelEfficiencyBonus = loadedState.fuelEfficiencyBonus || 0;
+            loadedState.marketMoralePenaltyEnabled = loadedState.marketMoralePenaltyEnabled || false;
+            loadedState.heatEnabled = loadedState.heatEnabled || false;
+            loadedState.heat = loadedState.heat || 0;
             return loadedState;
         }
         case 'RESET_GAME': return INITIAL_STATE as GameState;
@@ -590,6 +650,20 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
                 ...state,
                 notifications: state.notifications.map(n =>
                     n.id === action.id ? { ...n, read: true } : n
+                )
+            };
+
+        case 'ADD_LETTER':
+            return {
+                ...state,
+                letters: [...state.letters, action.letter]
+            };
+
+        case 'MARK_LETTER_READ':
+            return {
+                ...state,
+                letters: state.letters.map(l =>
+                    l.id === action.id ? { ...l, read: true } : l
                 )
             };
 

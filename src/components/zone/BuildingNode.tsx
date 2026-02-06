@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Building2, Sparkles, Info } from 'lucide-react';
-import { CHAPEL_LUNCH_DURATION, CHAPEL_RADIUS, CHAPEL_WORK_DURATION, GENERATORS_CONFIG, GRID_SIZE } from '@/config';
+import { CHAPEL_LUNCH_DURATION, CHAPEL_WORK_DURATION, GENERATORS_CONFIG, GRID_SIZE, HOUSE_NUISANCE_RADIUS } from '@/config';
 import type { Building } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -17,6 +17,14 @@ export const BuildingNode: React.FC<Props> = React.memo(({ building, allBuilding
     const config = GENERATORS_CONFIG.find(g => g.id === building.typeId);
     const Icon = config?.icon || Building2;
     const isMarket = config?.category === 'market';
+    const isHouse = building.typeId === 'house';
+    const isHouseNearProduction = isHouse && allBuildings.some(b => {
+        if (!b.isPlaced || b.id === building.id) return false;
+        const bConfig = GENERATORS_CONFIG.find(g => g.id === b.typeId);
+        if (bConfig?.category !== 'production') return false;
+        const dist = Math.sqrt(Math.pow(b.x - building.x, 2) + Math.pow(b.y - building.y, 2));
+        return dist <= HOUSE_NUISANCE_RADIUS;
+    });
 
     const synergies = building.synergyStats;
     const totalBonus = building.synergyBonus;
@@ -51,7 +59,8 @@ export const BuildingNode: React.FC<Props> = React.memo(({ building, allBuilding
                 building.status === 'lunch' && "border-orange-500 bg-orange-950/20",
                 (building.isMissingWorkers || building.isStriking) && building.isActive && "border-red-500 bg-red-950/20",
                 building.isStriking && "border-red-600 bg-red-900/40 shadow-[0_0_15px_rgba(220,38,38,0.5)]",
-                hasSynergy && building.isActive && !building.isStriking && "shadow-[0_0_15px_-3px_rgba(59,130,246,0.6)] border-blue-400/50"
+                hasSynergy && building.isActive && !building.isStriking && "shadow-[0_0_15px_-3px_rgba(59,130,246,0.6)] border-blue-400/50",
+                isHouseNearProduction && "border-red-500/70 shadow-[0_0_18px_-3px_rgba(239,68,68,0.6)]"
             )}
             style={{ left: '50%', top: '50%', marginLeft: -20, marginTop: -20 }}
         >
@@ -61,8 +70,9 @@ export const BuildingNode: React.FC<Props> = React.memo(({ building, allBuilding
                         building.status === 'lunch' ? "text-orange-400" :
                             (building.isMissingWorkers || building.isStriking) ? "text-red-400" : "text-slate-300"
                 )} />
-                {!building.isActive && <div className="text-[7px] font-black text-red-500/80 mt-0.5 animate-pulse tracking-widest uppercase">Off</div>}
-                {building.isStriking && <div className="text-[7px] font-black text-red-400 mt-0.5 animate-pulse tracking-widest uppercase">Strike</div>}
+                {!building.isActive && <div className="text-[7px] font-black text-red-500/80 mt-0.5 animate-pulse tracking-widest uppercase">ВЫКЛ</div>}
+                {building.isStriking && <div className="text-[7px] font-black text-red-400 mt-0.5 animate-pulse tracking-widest uppercase">ЗАБАСТ</div>}
+                {isHouseNearProduction && <div className="text-[7px] font-black text-red-300 mt-0.5 tracking-widest uppercase">ШУМ</div>}
 
                 {hasSynergy && building.isActive && !building.isStriking && (
                     <div className="absolute -top-3 -right-3">
@@ -89,6 +99,7 @@ export const BuildingNode: React.FC<Props> = React.memo(({ building, allBuilding
                         {config?.description && <Info className="w-3 h-3 text-white/50" />}
                     </div>
                     <div className="text-white/60 font-black self-start mt-1">{config?.name || "Здание"}</div>
+                    <div className="text-[8px] text-white/30 font-bold mt-1">Перетащите, чтобы переместить</div>
                     {config?.description && (
                         <div className="mt-1 text-[8px] text-white/40 font-medium leading-relaxed max-w-[180px] whitespace-normal">
                             {config.description}
